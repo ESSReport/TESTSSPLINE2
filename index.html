@@ -1,70 +1,57 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>SSP Line2 Balance Dashboard</title>
 
-  <!-- External CSS -->
   <link rel="stylesheet" href="styles.css">
 
-  <!-- Optional: include JSZip & FileSaver via CDN here or let the script load them dynamically -->
+  <!-- JSZip & FileSaver (used to create ZIP) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 
-  <!-- Simple PIN protection -->
+  <!-- Simple PIN Protection -->
   <script>
     const encodedPass = "MTEwMTIwMjU="; // base64 for "11012025"
     const entered = prompt("Enter PIN to access dashboard:");
     if (btoa(entered) !== encodedPass) {
-      document.body.innerHTML = `
-        <h2 style="color:red;text-align:center;margin-top:40px;">
-          Access Denied ❌<br>Invalid PIN
-        </h2>`;
+      document.body.innerHTML = `<h2 style="color:red;text-align:center;margin-top:40px;">Access Denied ❌<br>Invalid PIN</h2>`;
       throw new Error("Access denied");
     }
   </script>
 
   <style>
-    /* small inline styles so page looks OK */
-    body { font-family: "Segoe UI", sans-serif; padding: 18px; background:#fafafa; color:#222; }
-    h2 { margin-top: 0; }
-    .toolbar { display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
-    .total-card { display:inline-block; margin:6px; padding:10px; background:#fff; border-radius:6px; box-shadow:0 1px 3px rgba(0,0,0,0.06); }
-    table { width:100%; border-collapse:collapse; background:#fff; }
-    th, td { padding:8px; border:1px solid #ddd; text-align:left; }
-    button { padding:8px 12px; border-radius:6px; border:none; cursor:pointer; }
-    #downloadAllShopsBtn { background:#2d9c2d; color:#fff; }
-    #exportBtn { background:#0077cc; color:#fff; }
-    #resetBtn { background:#888; color:#fff; }
+    body { font-family: "Segoe UI", Arial, sans-serif; padding:18px; background:#f7f9fb; color:#222; }
+    h2 { margin:0 0 12px 0; }
+    .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+    input[type="text"]{padding:8px;border-radius:6px;border:1px solid #ccc}
+    select{padding:8px;border-radius:6px;border:1px solid #ccc}
+    button{padding:8px 12px;border-radius:6px;border:none;cursor:pointer}
+    #exportBtn{background:#0077cc;color:#fff}
+    #downloadAllShopsBtn{background:#2d9c2d;color:#fff}
+    #resetBtn{background:#888;color:#fff}
+    table{width:100%;border-collapse:collapse;background:#fff}
+    th,td{padding:8px;border:1px solid #e3e6ea}
+    th{background:#0077cc;color:#fff;position:sticky;top:0}
+    .total-card{display:inline-block;margin:6px;padding:10px;background:#fff;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
   </style>
 </head>
-
 <body>
   <h2>Shops Balance Summary</h2>
 
-  <!-- Toolbar (Filters & Actions) -->
   <div class="toolbar">
-    <select id="leaderFilter">
-      <option value="ALL">All Team Leaders</option>
-    </select>
-
-    <select id="groupFilter">
-      <option value="ALL">All Groups</option>
-    </select>
-
-    <input type="text" id="searchInput" placeholder="🔍 Search Shop Name..." />
+    <select id="leaderFilter"><option value="ALL">All Team Leaders</option></select>
+    <select id="groupFilter"><option value="ALL">All Groups</option></select>
+    <input id="searchInput" type="text" placeholder="🔍 Search Shop Name..." />
 
     <button id="exportBtn">💾 Export CSV</button>
-    <!-- NEW button -->
-    <button id="downloadAllShopsBtn">📥 Download Individual Summaries</button>
+    <button id="downloadAllShopsBtn">📥 Download Individual Summaries (ZIP)</button>
     <button id="resetBtn">🔄 Reset</button>
   </div>
 
-  <!-- Link to open filtered dashboard in new tab -->
   <div id="teamDashboardLink"></div>
 
-  <!-- Table Container -->
   <div id="tableContainer">
     <table id="shopTable">
       <thead><tr id="tableHeader"></tr></thead>
@@ -72,17 +59,14 @@
     </table>
   </div>
 
-  <!-- Pagination Controls -->
   <div id="pagination" style="margin-top:10px;">
     <button id="prevPage" disabled>⬅ Prev</button>
     <span id="pageInfo" style="margin:0 12px;">Page 1</span>
     <button id="nextPage">Next ➡</button>
   </div>
 
-  <!-- Totals Summary -->
   <div id="totalsRow" style="margin-top:12px;"></div>
 
-  <!-- Dashboard logic -->
   <script src="dashboard.js"></script>
 </body>
 </html>
