@@ -1,3 +1,8 @@
+// ===============================
+// Dashboard script (full working)
+// Includes: data fetch, filters, CSV export, and ZIP of individual shop summaries
+// ===============================
+
 const SHEET_ID = "1lukJC1vKSq02Nus23svZ21_pp-86fz0mU1EARjalCBI";
 const OPENSHEET_URL = `https://opensheet.elk.sh/${SHEET_ID}/SHOPS%20BALANCE`;
 
@@ -266,40 +271,6 @@ function updateTeamDashboardLink() {
 }
 
 /* ---------- FILTERING & EVENTS ---------- */
-document.getElementById("leaderFilter").addEventListener("change", () => {
-  const selectedLeader = document.getElementById("leaderFilter").value;
-  buildGroupDropdown(rawData, selectedLeader);
-  document.getElementById("groupFilter").value = "ALL";
-  filterData();
-});
-
-document.getElementById("groupFilter").addEventListener("change", () => {
-  const selectedGroup = document.getElementById("groupFilter").value;
-  if (selectedGroup !== "ALL") {
-    const match = rawData.find(
-      r => (r["GROUP NAME"] || "").trim().toUpperCase() === selectedGroup
-    );
-    if (match) {
-      document.getElementById("leaderFilter").value = (match["TEAM LEADER"] || "").trim().toUpperCase();
-    }
-  }
-  filterData();
-});
-
-document.getElementById("searchInput").addEventListener("input", filterData);
-document.getElementById("prevPage").addEventListener("click", () => { currentPage--; renderTable(); });
-document.getElementById("nextPage").addEventListener("click", () => { currentPage++; renderTable(); });
-document.getElementById("resetBtn").addEventListener("click", () => {
-  document.getElementById("leaderFilter").value = "ALL";
-  document.getElementById("groupFilter").value = "ALL";
-  document.getElementById("searchInput").value = "";
-  buildGroupDropdown(rawData, "ALL");
-  filteredData = cachedData;
-  currentPage = 1;
-  renderTable();
-});
-document.getElementById("exportBtn").addEventListener("click", exportCSV);
-
 function filterData() {
   const leader = document.getElementById("leaderFilter").value;
   const group = document.getElementById("groupFilter").value;
@@ -328,15 +299,15 @@ function exportCSV() {
         let val = r[h] ?? "";
         if (typeof val === "number") val = val.toFixed(2);
         val = String(val)
-          .replace(/"/g, '""')        // escape quotes
-          .replace(/\r?\n|\r/g, " "); // remove line breaks
+          .replace(/"/g, '""')
+          .replace(/\r?\n|\r/g, " ");
         return `"${val}"`;
       }).join(",");
       csv += row + "\r\n";
     });
 
     // Create a blob with Excel-compatible MIME type
-    const blob = new Blob([csv], { type: "application/vnd.ms-excel;charset=utf-8" });
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
 
     // Create hidden link for download
@@ -359,19 +330,17 @@ function exportCSV() {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     }, 500);
-
-    console.log(`✅ ${filename} downloaded successfully`);
   } catch (err) {
     console.error("CSV Export Failed:", err);
     alert("⚠️ Failed to export CSV file.");
   }
 }
-/* ---------- INIT ---------- */
-loadDashboard();
 
 /* ===============================================================
-   📦 NEW: DOWNLOAD ALL INDIVIDUAL SHOP SUMMARIES (ZIP of CSVs)
+   ZIP EXPORT – Fetch shop_dashboard.html for each visible shop,
+   parse its transaction table, create CSV per shop, then ZIP them
 ================================================================= */
+
 document.getElementById("downloadAllShopsBtn")?.addEventListener("click", async () => {
   const shops = filteredData.length ? filteredData : cachedData;
   if (!shops.length) {
@@ -379,38 +348,177 @@ document.getElementById("downloadAllShopsBtn")?.addEventListener("click", async 
     return;
   }
 
+  if (!confirm(`Download individual summaries for ${shops.length} shop(s)? This may take a while.`)) return;
+
   const btn = document.getElementById("downloadAllShopsBtn");
   const originalText = btn.textContent;
   btn.disabled = true;
   btn.textContent = "⏳ Preparing...";
 
+  // Ensure JSZip & FileSaver are available (CDN included in HTML; fallback to dynamic load)
   if (typeof JSZip === "undefined") {
     const s1 = document.createElement("script");
     s1.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
     document.head.appendChild(s1);
-    await new Promise(res => s1.onload = res);
+    await new Promise(res => (s1.onload = res));
   }
   if (typeof saveAs === "undefined") {
     const s2 = document.createElement("script");
     s2.src = "https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js";
     document.head.appendChild(s2);
-    await new Promise(res => s2.onload = res);
+    await new Promise(res => (s2.onload = res));
   }
 
   const zip = new JSZip();
   let done = 0;
+
+  // helper to sanitize text and escape quotes for CSV
+  const cellText = (txt) => String(txt ?? "").trim().replace(/\r?\n|\r/g, " ").replace(/"/g, '""');
+
   for (const shop of shops) {
-    const csv = HEADERS.map(h => h).join(",") + "\n" +
-      HEADERS.map(h => `"${shop[h] || 0}"`).join(",") + "\n";
-    const safeName = (shop["SHOP NAME"] || "Shop").replace(/[^\w\s-]/g, "_");
-    zip.file(`${safeName}_summary.csv`, csv);
-    done++;
-    btn.textContent = `⏳ ${done}/${shops.length}`;
+    const shopNameRaw = (shop["SHOP NAME"] || shop["SHOP"] || "").trim();
+    if (!shopNameRaw) {
+      done++;
+      btn.textContent = `⏳ ${done}/${shops.length}`;
+      continue;
+    }
+    const shopQuery = encodeURIComponent(shopNameRaw);
+    const url = `shop_dashboard.html?shopName=${shopQuery}`;
+
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const html = await res.text();
+
+      // Parse returned HTML
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, "text/html");
+
+      // Grab header details (fallback to main dashboard values if not in shop page)
+      const infoShopName = doc.querySelector("#infoShopName")?.textContent?.trim() || shopNameRaw;
+      const infoSecDeposit = doc.querySelector("#infoSecDeposit")?.textContent?.trim() || "0.00";
+      const infoBF = doc.querySelector("#infoBFBalance")?.textContent?.trim() || "0.00";
+      const infoLeader = doc.querySelector("#infoTeamLeader")?.textContent?.trim() || (shop["TEAM LEADER"] || "");
+
+      // Find transaction table
+      const table = doc.querySelector("#transactionTable");
+      let headers = ["DATE","DEPOSIT","WITHDRAWAL","IN","OUT","SETTLEMENT","SPECIAL PAYMENT","ADJUSTMENT","SEC DEPOSIT","DP COMM","WD COMM","ADD COMM","BALANCE"];
+      let rowsData = [];
+      let totalsRow = null;
+
+      if (table) {
+        const theadThs = Array.from(table.querySelectorAll("thead th"));
+        if (theadThs.length) headers = theadThs.map(th => cellText(th.textContent));
+
+        const tbodyRows = Array.from(table.querySelectorAll("tbody tr"));
+        rowsData = tbodyRows.map(tr => Array.from(tr.querySelectorAll("td")).map(td => cellText(td.textContent)));
+
+        // totals: tfoot #totalsRow or last tbody row starting with TOTAL
+        const tfootTotals = table.querySelector("tfoot #totalsRow");
+        if (tfootTotals) {
+          const tds = Array.from(tfootTotals.querySelectorAll("td"));
+          // drop first cell label 'TOTAL', keep the rest aligned with headers
+          totalsRow = tds.map(td => cellText(td.textContent));
+        } else {
+          const lastRow = tbodyRows[tbodyRows.length - 1];
+          if (lastRow && /^TOTAL$/i.test((lastRow.querySelector("td")?.textContent || "").trim())) {
+            totalsRow = Array.from(lastRow.querySelectorAll("td")).map(td => cellText(td.textContent));
+          }
+        }
+      }
+
+      // Build CSV with BOM + CRLF
+      const BOM = "\uFEFF";
+      let csv = BOM;
+      csv += `Shop Name,${cellText(infoShopName)}\r\n`;
+      csv += `Team Leader,${cellText(infoLeader)}\r\n`;
+      csv += `Security Deposit,${cellText(infoSecDeposit)}\r\n`;
+      csv += `Bring Forward Balance,${cellText(infoBF)}\r\n\r\n`;
+
+      csv += headers.join(",") + "\r\n";
+      rowsData.forEach(row => {
+        // ensure row length matches headers; map to headers locales
+        const outRow = headers.map((_, i) => `"${cellText(row[i] ?? "")}"`);
+        csv += outRow.join(",") + "\r\n";
+      });
+
+      if (totalsRow) {
+        // try to include a TOTAL line labeled 'TOTAL' aligned to headers
+        // If totalsRow length equals headers length, write it directly; otherwise write 'TOTAL,' + rest
+        if (totalsRow.length === headers.length) {
+          const totalOut = totalsRow.map(v => `"${cellText(v)}"`).join(",");
+          csv += totalOut + "\r\n";
+        } else {
+          // put leading 'TOTAL' then the rest
+          const rest = totalsRow.slice(1).map(v => `"${cellText(v)}"`).join(",");
+          csv += `"TOTAL",${rest}\r\n`;
+        }
+      }
+
+      const safeName = shopNameRaw.replace(/[^\w\s-]/g, "_");
+      zip.file(`${safeName}_summary.csv`, csv);
+
+      done++;
+      btn.textContent = `⏳ ${done}/${shops.length}`;
+    } catch (err) {
+      console.error(`Failed to fetch/parse ${url}:`, err);
+      const safeName = shopNameRaw.replace(/[^\w\s-]/g, "_");
+      const errCsv = "\uFEFF" + `Shop Name,${cellText(shopNameRaw)}\r\nERROR,Failed to fetch or parse shop_dashboard\r\n`;
+      zip.file(`${safeName}_summary_error.csv`, errCsv);
+      done++;
+      btn.textContent = `⏳ ${done}/${shops.length}`;
+    }
+  } // end for
+
+  try {
+    const blob = await zip.generateAsync({ type: "blob" });
+    saveAs(blob, "shop_summaries.zip");
+  } catch (e) {
+    console.error("ZIP generation failed:", e);
+    alert("⚠️ Failed to generate ZIP file.");
+  } finally {
+    btn.textContent = originalText;
+    btn.disabled = false;
   }
+});
 
-  const blob = await zip.generateAsync({ type: "blob" });
-  saveAs(blob, "shop_summaries.zip");
+/* ---------- EVENT LISTENERS & INIT ---------- */
+document.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("leaderFilter").addEventListener("change", () => {
+    const selectedLeader = document.getElementById("leaderFilter").value;
+    buildGroupDropdown(rawData, selectedLeader);
+    document.getElementById("groupFilter").value = "ALL";
+    filterData();
+  });
 
-  btn.textContent = originalText;
-  btn.disabled = false;
+  document.getElementById("groupFilter").addEventListener("change", () => {
+    const selectedGroup = document.getElementById("groupFilter").value;
+    if (selectedGroup !== "ALL") {
+      const match = rawData.find(
+        r => (r["GROUP NAME"] || "").trim().toUpperCase() === selectedGroup
+      );
+      if (match) {
+        document.getElementById("leaderFilter").value = (match["TEAM LEADER"] || "").trim().toUpperCase();
+      }
+    }
+    filterData();
+  });
+
+  document.getElementById("searchInput").addEventListener("input", filterData);
+  document.getElementById("prevPage").addEventListener("click", () => { currentPage--; renderTable(); });
+  document.getElementById("nextPage").addEventListener("click", () => { currentPage++; renderTable(); });
+  document.getElementById("resetBtn").addEventListener("click", () => {
+    document.getElementById("leaderFilter").value = "ALL";
+    document.getElementById("groupFilter").value = "ALL";
+    document.getElementById("searchInput").value = "";
+    buildGroupDropdown(rawData, "ALL");
+    filteredData = cachedData;
+    currentPage = 1;
+    renderTable();
+  });
+
+  document.getElementById("exportBtn").addEventListener("click", exportCSV);
+
+  // Start
+  loadDashboard();
 });
