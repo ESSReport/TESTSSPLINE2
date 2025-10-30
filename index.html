@@ -5,10 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SSP Line2 Balance Dashboard</title>
 
-  <!-- ✅ External CSS -->
+  <!-- External CSS -->
   <link rel="stylesheet" href="styles.css">
 
-  <!-- 🔒 Simple PIN Protection -->
+  <!-- Optional: include JSZip & FileSaver via CDN here or let the script load them dynamically -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
+  <!-- Simple PIN protection -->
   <script>
     const encodedPass = "MTEwMTIwMjU="; // base64 for "11012025"
     const entered = prompt("Enter PIN to access dashboard:");
@@ -20,12 +24,26 @@
       throw new Error("Access denied");
     }
   </script>
+
+  <style>
+    /* small inline styles so page looks OK */
+    body { font-family: "Segoe UI", sans-serif; padding: 18px; background:#fafafa; color:#222; }
+    h2 { margin-top: 0; }
+    .toolbar { display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
+    .total-card { display:inline-block; margin:6px; padding:10px; background:#fff; border-radius:6px; box-shadow:0 1px 3px rgba(0,0,0,0.06); }
+    table { width:100%; border-collapse:collapse; background:#fff; }
+    th, td { padding:8px; border:1px solid #ddd; text-align:left; }
+    button { padding:8px 12px; border-radius:6px; border:none; cursor:pointer; }
+    #downloadAllShopsBtn { background:#2d9c2d; color:#fff; }
+    #exportBtn { background:#0077cc; color:#fff; }
+    #resetBtn { background:#888; color:#fff; }
+  </style>
 </head>
 
 <body>
   <h2>Shops Balance Summary</h2>
 
-  <!-- Toolbar -->
+  <!-- Toolbar (Filters & Actions) -->
   <div class="toolbar">
     <select id="leaderFilter">
       <option value="ALL">All Team Leaders</option>
@@ -38,13 +56,12 @@
     <input type="text" id="searchInput" placeholder="🔍 Search Shop Name..." />
 
     <button id="exportBtn">💾 Export CSV</button>
-    <button id="resetBtn" style="background:#888;">🔄 Reset</button>
-
-    <!-- ✅ New Button -->
-    <button id="downloadAllShopsBtn" style="background:#2d6cdf;">📦 Download All Individual Summaries</button>
+    <!-- NEW button -->
+    <button id="downloadAllShopsBtn">📥 Download Individual Summaries</button>
+    <button id="resetBtn">🔄 Reset</button>
   </div>
 
-  <!-- Team Dashboard Link -->
+  <!-- Link to open filtered dashboard in new tab -->
   <div id="teamDashboardLink"></div>
 
   <!-- Table Container -->
@@ -55,17 +72,17 @@
     </table>
   </div>
 
-  <!-- Pagination -->
-  <div id="pagination">
+  <!-- Pagination Controls -->
+  <div id="pagination" style="margin-top:10px;">
     <button id="prevPage" disabled>⬅ Prev</button>
     <span id="pageInfo" style="margin:0 12px;">Page 1</span>
     <button id="nextPage">Next ➡</button>
   </div>
 
-  <!-- Totals -->
-  <div id="totalsRow"></div>
+  <!-- Totals Summary -->
+  <div id="totalsRow" style="margin-top:12px;"></div>
 
-  <!-- Main Dashboard Script -->
+  <!-- Dashboard logic -->
   <script src="dashboard.js"></script>
 </body>
 </html>
