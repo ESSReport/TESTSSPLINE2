@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Shop Dashboard</title>
+  <style>
+    body { font-family: "Segoe UI", sans-serif; padding: 20px; background: #f6f8fa; color: #222; }
+    h1 { margin-bottom: 15px; }
+    .shop-info { 
+      margin-bottom: 20px; 
+      padding: 15px; 
+      background: #fff; 
+      border-radius: 8px; 
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1); 
+      display: flex; 
+      flex-wrap: wrap; 
+      gap: 20px; 
+      align-items: center;
+    }
+    .shop-info div { font-weight: bold; }
+    .shop-info button { 
+      padding: 8px 15px; 
+      background: #0077cc; 
+      color: #fff; 
+      border: none; 
+      border-radius: 5px; 
+      cursor: pointer; 
+    }
+    table { 
+      border-collapse: collapse; 
+      width: 100%; 
+      margin-top: 10px; 
+      background: #fff; 
+      border-radius: 8px; 
+      overflow: hidden;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+    th { background-color: #0077cc; color: #fff; font-weight: 600; position: sticky; top: 0; z-index: 1; }
+    tr:nth-child(even) { background: #f2f2f2; }
+    tr.latest { background: #ffeeba; font-weight: bold; }
+    #totalsRow { font-weight: bold; background: #e0e0e0; }
+    #loadingSpinner { font-weight: bold; margin-bottom: 10px; }
+    @media (max-width: 768px) {
+      .shop-info { flex-direction: column; align-items: flex-start; }
+      table { font-size: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <h1 id="shopTitle">Shop Dashboard</h1>
+  <div id="loadingSpinner">Loading data...</div>
+
+  <div class="shop-info" id="shopInfo">
+    <div>Shop Name: <span id="infoShopName">-</span></div>
+    <div>Security Deposit: <span id="infoSecDeposit">-</span></div>
+    <div>Bring Forward Balance: <span id="infoBFBalance">-</span></div>
+    <div>Team Leader: <span id="infoTeamLeader">-</span></div>
+    <div>
+      <button id="viewDailyBtn">📄 View Daily Transactions</button>
+    </div>
+  </div>
+
+  <table border="1" id="transactionTable">
+    <thead>
+      <tr>
+        <th>DATE</th>
+        <th>DEPOSIT</th>
+        <th>WITHDRAWAL</th>
+        <th>IN</th>
+        <th>OUT</th>
+        <th>SETTLEMENT</th>
+        <th>SPECIAL PAYMENT</th>
+        <th>ADJUSTMENT</th>
+        <th>SEC DEPOSIT</th>
+        <th>DP COMM</th>
+        <th>WD COMM</th>
+        <th>ADD COMM</th>
+        <th>BALANCE</th>
+      </tr>
+    </thead>
+    <tbody id="transactionTableBody"></tbody>
+    <tfoot>
+      <tr id="totalsRow">
+        <td>TOTAL</td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <script src="shop_dashboard.js"></script>
+</body>
+</html>

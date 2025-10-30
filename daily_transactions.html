@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Daily Transaction Dashboard</title>
+<style>
+body { font-family: Arial, sans-serif; padding: 20px; }
+.filter-card { margin-bottom: 20px; }
+.filter-card label { margin-right: 10px; }
+#loadingSpinner { display: none; margin-top: 20px; font-weight: bold; }
+.dashboard-bar { display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
+.bar { padding: 10px; background-color: #4CAF50; color: white; flex: 1; text-align: center; border-radius: 5px; }
+.backup-list { margin-top: 20px; }
+.backup-btn { margin: 3px; padding: 6px 12px; background-color: #2196F3; color: white; border: none; border-radius: 4px; cursor: pointer; }
+.backup-btn:hover { background-color: #1976D2; }
+</style>
+</head>
+<body>
+
+<h1 id="dashboardTitle">Daily Transaction Dashboard</h1>
+
+<div class="filter-card">
+  <label>Date: <input type="date" id="dateFilter"></label>
+  <label>Wallet:
+    <select id="walletFilter"><option value="All">All</option></select>
+  </label>
+  <label>Type:
+    <select id="typeFilter"><option value="All">All</option></select>
+  </label>
+  <button id="resetBtn">Reset Filters</button>
+  <button id="exportBtn">💾 Export CSV</button>
+</div>
+
+<div id="loadingSpinner">Loading...</div>
+<div id="dashboardBars" class="dashboard-bar"></div>
+
+<h2>Previous Data</h2>
+<div id="backupList" class="backup-list">Loading backups...</div>
+
+<script src="daily_transactions.js"></script>
+</body>
+</html>

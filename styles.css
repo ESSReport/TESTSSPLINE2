@@ -1,0 +1,222 @@
+/* ===============================
+   🌐 BASE STYLES (Desktop First)
+   =============================== */
+body {
+  font-family: "Segoe UI", sans-serif;
+  background: #f6f8fa;
+  color: #222;
+  padding: 20px;
+  margin: 0;
+}
+
+h2 {
+  margin-bottom: 10px;
+  font-size: 1.5em;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+select,
+input[type="text"],
+button {
+  padding: 8px 12px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  font-size: 14px;
+}
+
+button {
+  cursor: pointer;
+  background: #0077cc;
+  color: white;
+  border: none;
+  transition: background 0.2s ease-in-out;
+}
+
+button:hover {
+  background: #005fa3;
+}
+
+button:disabled {
+  background: #999;
+  cursor: not-allowed;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+  background: #fff;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+th,
+td {
+  border: 1px solid #ddd;
+  padding: 8px 12px;
+  text-align: right;
+}
+
+th.left,
+td.left {
+  text-align: left;
+}
+
+th {
+  background: #0077cc;
+  color: white;
+  font-weight: 600;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+tr:nth-child(even) {
+  background: #f2f2f2;
+}
+
+#tableContainer {
+  width: 100%;
+  overflow-x: auto;
+}
+
+#pagination {
+  margin-top: 15px;
+  text-align: center;
+}
+
+#pagination button {
+  margin: 0 4px;
+}
+
+#totalsRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 15px;
+}
+
+.total-card {
+  flex: 1 1 120px;
+  background: #0077cc;
+  color: white;
+  text-align: center;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: bold;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.total-card div:first-child {
+  font-size: 10px;
+  opacity: 0.8;
+}
+
+#teamDashboardLink {
+  margin-bottom: 10px;
+}
+
+a.shop-link {
+  color: #0077cc;
+  text-decoration: underline;
+}
+
+/* ===============================
+   📱 RESPONSIVE STYLES (Phones)
+   =============================== */
+@media (max-width: 768px) {
+  body {
+    padding: 12px;
+    font-size: 15px;
+  }
+
+  h2 {
+    font-size: 1.2em;
+    text-align: center;
+  }
+
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  select,
+  input[type="text"],
+  button {
+    width: 100%;
+    font-size: 15px;
+    padding: 10px 12px;
+  }
+
+  #tableContainer {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  table {
+    font-size: 13px;
+    min-width: 600px;
+  }
+
+  th,
+  td {
+    white-space: nowrap;
+  }
+
+  button {
+    font-size: 15px;
+    padding: 10px;
+  }
+
+  #pagination button {
+    margin: 6px;
+    padding: 10px 14px;
+  }
+
+  .total-card {
+    flex: 1 1 100%;
+    font-size: 14px;
+    padding: 10px;
+  }
+}
+
+/* ===============================
+   📲 EXTRA SMALL DEVICES (≤480px)
+   =============================== */
+@media (max-width: 480px) {
+  h2 {
+    font-size: 1.1em;
+  }
+
+  .toolbar {
+    gap: 6px;
+  }
+
+  select,
+  input[type="text"],
+  button {
+    font-size: 14px;
+    padding: 8px 10px;
+  }
+
+  .total-card {
+    font-size: 13px;
+    padding: 8px;
+  }
+
+  table {
+    font-size: 12px;
+  }
+}

@@ -1,0 +1,126 @@
+body {
+  font-family: "Segoe UI", sans-serif;
+  background: #f4f6f8;
+  color: #333;
+  margin: 0;
+  padding: 20px;
+}
+
+.container {
+  max-width: 1200px;
+  margin: auto;
+}
+
+h1 {
+  text-align: center;
+  margin-bottom: 20px;
+  color: #222;
+}
+
+.filter-card {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  background: #fff;
+  padding: 15px 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  margin-bottom: 15px;
+}
+
+.filter-group label {
+  margin-right: 20px;
+  font-weight: 500;
+}
+
+.filter-group select {
+  margin-left: 5px;
+  padding: 5px 10px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+}
+
+.button-group button {
+  margin-left: 10px;
+  padding: 6px 15px;
+  background: #0077cc;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.button-group button:hover {
+  background: #005fa3;
+}
+
+#loadingSpinner {
+  text-align: center;
+  font-weight: bold;
+  margin-top: 20px;
+  color: #555;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+}
+
+th, td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #e0e0e0;
+  text-align: center;
+}
+
+th {
+  background: #0077cc;
+  color: #fff;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+tr:hover {
+  background: #f1f7fb;
+}
+
+tr:nth-child(even) td {
+  background: #f9f9f9;
+}
+
+.pagination {
+  margin-top: 15px;
+  text-align: center;
+}
+
+.pagination button {
+  padding: 6px 12px;
+  margin: 0 5px;
+  border-radius: 4px;
+  border: none;
+  background: #0077cc;
+  color: #fff;
+  cursor: pointer;
+}
+
+.pagination button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+@media (max-width: 768px) {
+  .filter-card {
+    flex-direction: column;
+  }
+  .filter-group, .button-group {
+    margin-bottom: 10px;
+  }
+  table {
+    font-size: 12px;
+  }
+}

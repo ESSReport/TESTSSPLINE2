@@ -1,0 +1,44 @@
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin-top: 10px;
+  background: #fff;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+}
+
+th, td {
+  border: 1px solid #ccc;
+  padding: 8px;
+  text-align: center;
+}
+
+th {
+  background-color: #0077cc;
+  color: white;
+  font-weight: bold;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+tbody tr:nth-child(even) {
+  background: #f9f9f9;
+}
+
+tbody tr:last-child {
+  background: #ffeeba; /* Highlight latest running balance */
+  font-weight: bold;
+}
+
+tfoot td {
+  font-weight: bold;
+  background: #f1f1f1;
+}
+
+.bar {
+  height: 8px;
+  margin-top: 2px;
+  border-radius: 3px;
+}
