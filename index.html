@@ -7,7 +7,7 @@
 
   <link rel="stylesheet" href="styles.css">
 
-  <!-- JSZip & FileSaver (used to create ZIP) -->
+  <!-- JSZip & FileSaver -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 
@@ -22,19 +22,64 @@
   </script>
 
   <style>
-    body { font-family: "Segoe UI", Arial, sans-serif; padding:18px; background:#f7f9fb; color:#222; }
-    h2 { margin:0 0 12px 0; }
-    .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
-    input[type="text"]{padding:8px;border-radius:6px;border:1px solid #ccc}
-    select{padding:8px;border-radius:6px;border:1px solid #ccc}
-    button{padding:8px 12px;border-radius:6px;border:none;cursor:pointer}
-    #exportBtn{background:#0077cc;color:#fff}
-    #downloadAllShopsBtn{background:#2d9c2d;color:#fff}
-    #resetBtn{background:#888;color:#fff}
-    table{width:100%;border-collapse:collapse;background:#fff}
-    th,td{padding:8px;border:1px solid #e3e6ea}
-    th{background:#0077cc;color:#fff;position:sticky;top:0}
-    .total-card{display:inline-block;margin:6px;padding:10px;background:#fff;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
+    body {
+      font-family: "Segoe UI", Arial, sans-serif;
+      padding: 18px;
+      background: #f7f9fb;
+      color: #222;
+    }
+    h2 { margin: 0 0 12px 0; }
+
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    input[type="text"], select {
+      padding: 8px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+    }
+    button {
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+    }
+    #exportBtn { background: #0077cc; color: #fff; }
+    #downloadAllShopsBtn { background: #2d9c2d; color: #fff; }
+    #resetBtn { background: #888; color: #fff; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+    }
+    th, td {
+      padding: 8px;
+      border: 1px solid #e3e6ea;
+    }
+    th {
+      background: #0077cc;
+      color: #fff;
+      position: sticky;
+      top: 0;
+    }
+
+    .total-card {
+      display: inline-block;
+      margin: 6px;
+      padding: 10px 14px;
+      background: #0077cc;
+      color: #fff;
+      border-radius: 6px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      font-weight: 500;
+    }
+    .total-card div:first-child { font-size: 0.85rem; opacity: 0.9; }
+    .total-card div:last-child { font-size: 1.1rem; font-weight: bold; }
   </style>
 </head>
 <body>
