@@ -1,13 +1,8 @@
-// Dashboard with Download Individual Summaries (ZIP of CSVs)
-
+// Dashboard with CSV and ZIP download functionality
 const SHEET_ID = "1lukJC1vKSq02Nus23svZ21_pp-86fz0mU1EARjalCBI";
 const OPENSHEET_BASE = `https://opensheet.elk.sh/${SHEET_ID}`;
 const OPENSHEET = {
-  SHOPS_BALANCE: `${OPENSHEET_BASE}/SHOPS%20BALANCE`,
-  DEPOSIT: `${OPENSHEET_BASE}/TOTAL%20DEPOSIT`,
-  WITHDRAWAL: `${OPENSHEET_BASE}/TOTAL%20WITHDRAWAL`,
-  STLM: `${OPENSHEET_BASE}/STLM%2FTOPUP`,
-  COMM: `${OPENSHEET_BASE}/COMM`
+  SHOPS_BALANCE: `${OPENSHEET_BASE}/SHOPS%20BALANCE`
 };
 
 const HEADERS = [
@@ -52,7 +47,7 @@ async function loadDashboard(){
   buildGroupDropdown(rawData, "ALL");
   buildSummary(rawData);
 
-  /* ✅ Automatically filter if ?teamLeader= is in the URL */
+  // Auto filter from URL parameter
   const params = new URLSearchParams(window.location.search);
   const leaderFromUrl = params.get("teamLeader");
   if (leaderFromUrl) {
@@ -107,7 +102,7 @@ function buildSummary(data){
      "ADJUSTMENT","DP COMM","WD COMM","ADD COMM"].forEach(key=>{
       summary[shop][key] = (summary[shop][key] || 0) + parseNumber(r[key]);
     });
-    summary[shop]["RUNNING BALANCE"] = 
+    summary[shop]["RUNNING BALANCE"] =
       (summary[shop]["BRING FORWARD BALANCE"]||0) +
       (summary[shop]["TOTAL DEPOSIT"]||0) -
       (summary[shop]["TOTAL WITHDRAWAL"]||0) +
@@ -207,6 +202,60 @@ function filterData(){
   currentPage = 1; renderTable();
 }
 
+/* ---------- CSV + ZIP Export Functions ---------- */
+function convertToCSV(data, headers) {
+  const csvRows = [];
+  csvRows.push(headers.join(","));
+  for (const row of data) {
+    const values = headers.map(h => {
+      let val = row[h] ?? "";
+      val = typeof val === "number" ? val.toFixed(2) : String(val).replace(/"/g, '""');
+      return `"${val}"`;
+    });
+    csvRows.push(values.join(","));
+  }
+  return csvRows.join("\n");
+}
+
+// Export current filtered table
+document.getElementById("exportBtn").addEventListener("click", () => {
+  if (!filteredData.length) {
+    alert("No data to export!");
+    return;
+  }
+  const csv = convertToCSV(filteredData, HEADERS);
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const filename = `Shop_Balance_${new Date().toISOString().split("T")[0]}.csv`;
+  saveAs(blob, filename);
+});
+
+// Download ZIP with individual shop CSVs
+document.getElementById("downloadAllShopsBtn").addEventListener("click", async () => {
+  if (!cachedData.length) {
+    alert("No data available!");
+    return;
+  }
+
+  const zip = new JSZip();
+  const grouped = {};
+  cachedData.forEach(row => {
+    const shop = row["SHOP NAME"] || "UNKNOWN";
+    if (!grouped[shop]) grouped[shop] = [];
+    grouped[shop].push(row);
+  });
+
+  for (const shop of Object.keys(grouped)) {
+    const csv = convertToCSV(grouped[shop], HEADERS);
+    const safeName = shop.replace(/[\\/:*?"<>|]/g, "_");
+    zip.file(`${safeName}.csv`, csv);
+  }
+
+  const blob = await zip.generateAsync({ type: "blob" });
+  const filename = `Shop_Summaries_${new Date().toISOString().split("T")[0]}.zip`;
+  saveAs(blob, filename);
+});
+
+/* ---------- Event Listeners ---------- */
 document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("leaderFilter").addEventListener("change", () => {
     const selectedLeader = document.getElementById("leaderFilter").value;
@@ -227,19 +276,6 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("searchInput").addEventListener("input", filterData);
   document.getElementById("prevPage").addEventListener("click", ()=>{ currentPage--; renderTable(); });
   document.getElementById("nextPage").addEventListener("click", ()=>{ currentPage++; renderTable(); });
-  document.getElementById("resetBtn").addEventListener("click", ()=>{
-    document.getElementById("leaderFilter").disabled = false;
-    document.getElementById("leaderFilter").value="ALL";
-    document.getElementById("groupFilter").value="ALL";
-    document.getElementById("searchInput").value="";
-    buildGroupDropdown(rawData,"ALL");
-    filteredData = cachedData;
-    currentPage = 1;
-    renderTable();
-  });
-
-  document.getElementById("exportBtn").addEventListener("click", ()=>console.log("Export CSV clicked"));
-  document.getElementById("downloadAllShopsBtn").addEventListener("click", ()=>console.log("Download summaries clicked"));
 
   loadDashboard();
 });
