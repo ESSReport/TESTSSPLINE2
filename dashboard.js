@@ -1,6 +1,4 @@
-// dashboard.js
-// Full working dashboard logic with PIN modal, CSV export (filtered) and optimized ZIP builder
-// Keeps your original balance computations unchanged
+// dashboard.js (final) - unified IDs, robust downloads, totals, leader filtering + redirect links + absolute leader filter
 
 /* -------------------------
    Configuration / Helpers
@@ -23,8 +21,8 @@ const HEADERS = [
 
 const cleanKey = k => String(k||"").replace(/\s+/g," ").trim().toUpperCase();
 const parseNumber = v => {
-  if (!v) return 0;
-  const s = String(v).replace(/[,\s]/g,"").replace(/\((.*)\)/,"-$1");
+  if (v === undefined || v === null || v === "") return 0;
+  const s = String(v).replace(/,/g,"").replace(/\((.*)\)/,"-$1").trim();
   const n = Number(s);
   return isFinite(n) ? n : 0;
 };
@@ -36,23 +34,19 @@ const normalize = row => {
 
 let rawData = [], cachedData = [], filteredData = [];
 let currentPage = 1, rowsPerPage = 20;
+const PIN_CODE = "11012025";
 
 /* -------------------------
-   PIN Modal (prevents loading until correct PIN)
+   PIN Modal
    ------------------------- */
-const PIN_CODE = "11012025"; // correct PIN
 function showPinModal() {
-  // if already verified in sessionStorage, skip
   if (sessionStorage.getItem("verifiedPin") === "true") return Promise.resolve();
-
   return new Promise((resolve, reject) => {
     const overlay = document.createElement("div");
     overlay.id = "pinOverlay";
-    overlay.style.cssText = `
-      position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:9999;
-    `;
+    overlay.style.cssText = `position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:9999;`;
     overlay.innerHTML = `
-      <div style="width:360px;max-width:94%;background:#fff;border-radius:12px;padding:22px;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,0.2);">
+      <div style="width:360px;max-width:94%;background:#fff;border-radius:12px;padding:22px;text-align:center;">
         <h2 style="margin:0 0 12px;color:#0077cc;">🔒 Enter PIN to access dashboard</h2>
         <input id="pinInput" type="password" maxlength="12" autofocus
           style="width:100%;padding:10px;font-size:16px;border-radius:8px;border:1px solid #ddd;text-align:center;" />
@@ -70,42 +64,26 @@ function showPinModal() {
     const pinCancel = document.getElementById("pinCancel");
     const pinError = document.getElementById("pinError");
 
-    function cleanUpAndResolve() {
-      overlay.remove();
-      sessionStorage.setItem("verifiedPin", "true");
-      resolve();
-    }
-    function cleanUpAndReject() {
-      overlay.remove();
-      reject(new Error("Access cancelled"));
-    }
-
-    pinOk.addEventListener("click", () => {
+    function ok() {
       const val = pinInput.value?.trim();
       if (val === PIN_CODE) {
-        cleanUpAndResolve();
+        overlay.remove();
+        sessionStorage.setItem("verifiedPin", "true");
+        resolve();
       } else {
         pinError.style.display = "block";
         pinInput.value = "";
         pinInput.focus();
       }
-    });
-
-    pinCancel.addEventListener("click", () => {
-      pinError.style.display = "none";
-      cleanUpAndReject();
-    });
-
-    // Enter key works
-    pinInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") pinOk.click();
-      if (e.key === "Escape") pinCancel.click();
-    });
+    }
+    pinOk.addEventListener("click", ok);
+    pinCancel.addEventListener("click", () => { overlay.remove(); reject(new Error("cancelled")); });
+    pinInput.addEventListener("keydown", (e) => { if (e.key === "Enter") ok(); if (e.key === "Escape") { overlay.remove(); reject(new Error("cancelled")); }});
   });
 }
 
 /* -------------------------
-   Data fetchers & builders
+   Fetch & Build Summary
    ------------------------- */
 async function fetchShopsBalance(){
   const res = await fetch(OPENSHEET.SHOPS_BALANCE);
@@ -114,20 +92,13 @@ async function fetchShopsBalance(){
   return json.map(normalize);
 }
 
-/* buildSummary / renderTable / filters / totals: original logic (kept intact) */
 function buildSummary(data){
   const summary = {};
   data.forEach(r=>{
     const shop = (r["SHOP"]||r["SHOP NAME"]||"").trim();
     if(!shop) return;
-    if(!summary[shop]) summary[shop] = Object.assign({}, ...HEADERS.map(h=> ({
-      [h]: (h==="SHOP NAME"? shop :
-            h==="TEAM LEADER"? ((r["TEAM LEADER"]||"").trim().toUpperCase()) :
-            h==="GROUP NAME"? ((r["GROUP NAME"]||"").trim().toUpperCase()) : 0)
-    })));
-    ["SECURITY DEPOSIT","BRING FORWARD BALANCE","TOTAL DEPOSIT","TOTAL WITHDRAWAL",
-     "INTERNAL TRANSFER IN","INTERNAL TRANSAFER OUT","SETTLEMENT","SPECIAL PAYMENT",
-     "ADJUSTMENT","DP COMM","WD COMM","ADD COMM"].forEach(key=>{
+    if(!summary[shop]) summary[shop] = Object.assign({}, ...HEADERS.map(h=> ({ [h]: (h==="SHOP NAME"? shop : (h==="TEAM LEADER"? ((r["TEAM LEADER"]||"").trim().toUpperCase()) : (h==="GROUP NAME"? ((r["GROUP NAME"]||"").trim().toUpperCase()) : 0) ) ) })));
+    ["SECURITY DEPOSIT","BRING FORWARD BALANCE","TOTAL DEPOSIT","TOTAL WITHDRAWAL","INTERNAL TRANSFER IN","INTERNAL TRANSAFER OUT","SETTLEMENT","SPECIAL PAYMENT","ADJUSTMENT","DP COMM","WD COMM","ADD COMM"].forEach(key=>{
       summary[shop][key] = (summary[shop][key] || 0) + parseNumber(r[key]);
     });
     summary[shop]["RUNNING BALANCE"] = 
@@ -144,15 +115,16 @@ function buildSummary(data){
   renderTable();
 }
 
+/* -------------------------
+   Render Table & Totals
+   ------------------------- */
 function renderTable(){
   const tableHead = document.getElementById("tableHeader");
   const tableBody = document.getElementById("tableBody");
   tableHead.innerHTML = ""; tableBody.innerHTML = "";
 
   HEADERS.forEach(h=>{
-    const th=document.createElement("th");
-    th.textContent=h;
-    tableHead.appendChild(th);
+    const th=document.createElement("th"); th.textContent=h; tableHead.appendChild(th);
   });
 
   const start = (currentPage-1)*rowsPerPage;
@@ -167,6 +139,8 @@ function renderTable(){
         a.textContent = r[h] + (r["WALLET NUMBER"]? ` (${r["WALLET NUMBER"]})` : "");
         a.href = `shop_dashboard.html?shopName=${encodeURIComponent(r[h])}`;
         a.target="_blank";
+        a.style.color = "#0077cc";
+        a.style.textDecoration = "underline";
         td.appendChild(a);
       } else if(["TEAM LEADER","GROUP NAME"].includes(h)){
         td.textContent = r[h] || "";
@@ -183,13 +157,6 @@ function renderTable(){
   updateTeamDashboardLink();
 }
 
-function updatePagination(){
-  const totalPages = Math.ceil(filteredData.length/rowsPerPage) || 1;
-  document.getElementById("pageInfo").textContent = `Page ${currentPage} of ${totalPages}`;
-  document.getElementById("prevPage").disabled = currentPage===1;
-  document.getElementById("nextPage").disabled = currentPage===totalPages;
-}
-
 function renderTotals(){
   const totalsDiv = document.getElementById("totalsRow");
   totalsDiv.innerHTML = "";
@@ -203,6 +170,13 @@ function renderTotals(){
   });
 }
 
+function updatePagination(){
+  const totalPages = Math.ceil(filteredData.length/rowsPerPage) || 1;
+  document.getElementById("pageInfo").textContent = `Page ${currentPage} of ${totalPages}`;
+  document.getElementById("prevPage").disabled = currentPage===1;
+  document.getElementById("nextPage").disabled = currentPage===totalPages;
+}
+
 function updateTeamDashboardLink(){
   const leader = document.getElementById("leaderFilter").value;
   const linkDiv = document.getElementById("teamDashboardLink");
@@ -212,28 +186,21 @@ function updateTeamDashboardLink(){
   } else linkDiv.innerHTML = "";
 }
 
+/* -------------------------
+   Filters
+   ------------------------- */
 function buildTeamLeaderDropdown(data){
   const dd = document.getElementById("leaderFilter");
   dd.innerHTML = '<option value="ALL">All Team Leaders</option>';
-  const leaders = [...new Set(data.map(r=> (r["TEAM LEADER"]||"").trim().toUpperCase()))]
-    .filter(x=>x&&x!=="#N/A"&&x!=="N/A").sort();
-  leaders.forEach(l=>{
-    const opt=document.createElement("option");
-    opt.value=l; opt.textContent=l; dd.appendChild(opt);
-  });
+  const leaders = [...new Set(data.map(r=> (r["TEAM LEADER"]||"").trim().toUpperCase()))].filter(x=>x&&x!=="#N/A"&&x!=="N/A").sort();
+  leaders.forEach(l=>{ const opt=document.createElement("option"); opt.value=l; opt.textContent=l; dd.appendChild(opt); });
 }
 
 function buildGroupDropdown(data, selectedLeader="ALL"){
   const dd = document.getElementById("groupFilter");
   dd.innerHTML = '<option value="ALL">All Groups</option>';
-  const groups = [...new Set(
-    data.filter(r=> selectedLeader==="ALL" || (r["TEAM LEADER"]||"").toUpperCase()===selectedLeader)
-    .map(r=> (r["GROUP NAME"]||"").trim().toUpperCase())
-  )].filter(x=>x&&x!=="#N/A"&&x!=="N/A").sort();
-  groups.forEach(g=>{
-    const opt=document.createElement("option");
-    opt.value=g; opt.textContent=g; dd.appendChild(opt);
-  });
+  const groups = [...new Set(data.filter(r=> selectedLeader==="ALL" || (r["TEAM LEADER"]||"").toUpperCase()===selectedLeader).map(r=> (r["GROUP NAME"]||"").trim().toUpperCase()))].filter(x=>x&&x!=="#N/A"&&x!=="N/A").sort();
+  groups.forEach(g=>{ const opt=document.createElement("option"); opt.value=g; opt.textContent=g; dd.appendChild(opt); });
 }
 
 function filterData(){
@@ -254,49 +221,45 @@ function filterData(){
    ------------------------- */
 function exportCSV() {
   if (!filteredData.length) { alert("No data to export"); return; }
+  // build CSV rows
   const rows = [HEADERS.join(",")];
   filteredData.forEach(r=>{
-    const row = HEADERS.map(h=>{
+    const row = HEADERS.map(h=> {
       const v = (r[h] === undefined || r[h] === null) ? "" : String(r[h]);
       return `"${v.replace(/"/g,'""')}"`;
     }).join(",");
     rows.push(row);
   });
   const blob = new Blob([rows.join("\n")], {type:"text/csv;charset=utf-8"});
+  // check saveAs available
+  if (typeof saveAs !== "function") {
+    console.error("FileSaver (saveAs) not available.");
+    alert("Download failed: FileSaver.js not loaded.");
+    return;
+  }
   saveAs(blob, `Shops_Summary_${new Date().toISOString().slice(0,10)}.csv`);
 }
 
 /* -------------------------
-   Optimized ZIP builder (per-shop daily transactions)
-   Matches logic from shop_dashboard.js
+   ZIP Download (per-shop CSVs, filtered by leader)
    ------------------------- */
-function createProgressOverlay() {
-  let overlay = document.getElementById("zipProgressOverlay");
-  if (overlay) return overlay;
-  overlay = document.createElement("div");
-  overlay.id = "zipProgressOverlay";
-  overlay.style.cssText = `
-    position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
-    background:rgba(0,0,0,0.45);z-index:99998;
-  `;
-  overlay.innerHTML = `
-    <div style="background:#fff;padding:20px;border-radius:10px;min-width:260px;text-align:center;">
-      <div id="zipProgressText" style="font-weight:600;margin-bottom:8px;">Building ZIP... please wait</div>
-      <div id="zipProgressCounter" style="font-size:13px;color:#555;"></div>
-    </div>
-  `;
-  document.body.appendChild(overlay);
-  return overlay;
-}
-
 async function downloadAllShops() {
-  try {
-    const overlay = createProgressOverlay();
-    const progressText = document.getElementById("zipProgressText");
-    const progressCounter = document.getElementById("zipProgressCounter");
-    overlay.style.display = "flex";
-    progressText.textContent = "Fetching sheets...";
+  console.log("downloadAllShops triggered");
+  // dependency checks
+  if (typeof JSZip !== "function" && typeof JSZip !== "object") {
+    alert("JSZip not loaded. Please include JSZip before dashboard.js");
+    console.error("JSZip missing");
+    return;
+  }
+  if (typeof saveAs !== "function") {
+    alert("FileSaver (saveAs) not loaded. Please include FileSaver.js before dashboard.js");
+    console.error("saveAs missing");
+    return;
+  }
 
+  const overlay = createProgressOverlay();
+  try {
+    setProgressText("Fetching sheets...");
     const [deposits, withdrawals, stlm, comm, shopBalanceRaw] = await Promise.all([
       fetch(OPENSHEET.DEPOSIT).then(r=>r.ok? r.json(): []),
       fetch(OPENSHEET.WITHDRAWAL).then(r=>r.ok? r.json(): []),
@@ -305,57 +268,47 @@ async function downloadAllShops() {
       fetch(OPENSHEET.SHOPS_BALANCE).then(r=>r.ok? r.json(): [])
     ]);
 
-    // 🔹 Normalize all key names to avoid space or case mismatch
-    const normalizeKeys = obj => {
-      const newObj = {};
-      for (const k in obj) newObj[k.trim().toUpperCase()] = obj[k];
-      return newObj;
-    };
-    const shopBalance = shopBalanceRaw.map(normalizeKeys);
-    const depositsNorm = (deposits || []).map(normalizeKeys);
-    const withdrawalsNorm = (withdrawals || []).map(normalizeKeys);
-    const stlmNorm = (stlm || []).map(normalizeKeys);
-    const commNorm = (comm || []).map(normalizeKeys);
+    // normalize keys
+    const normalizeKeys = obj => { const o={}; for(const k in obj) o[cleanKey(k)] = obj[k]; return o; };
+    const shopBalance = (shopBalanceRaw||[]).map(normalizeKeys);
+    const depositsNorm = (deposits||[]).map(normalizeKeys);
+    const withdrawalsNorm = (withdrawals||[]).map(normalizeKeys);
+    const stlmNorm = (stlm||[]).map(normalizeKeys);
+    const commNorm = (comm||[]).map(normalizeKeys);
 
-    progressText.textContent = "Building CSVs per shop...";
+    setProgressText("Building CSVs per shop...");
+    // selected leader
+    const selectedLeader = document.getElementById("leaderFilter")?.value?.trim().toUpperCase() || "ALL";
+    let shopsList = shopBalance;
+    if (selectedLeader !== "ALL") shopsList = shopBalance.filter(r => ((r["TEAM LEADER"]||"").toUpperCase()) === selectedLeader);
+    const shopNames = [...new Set(shopsList.map(r => (r["SHOP"]||"").toUpperCase()))].filter(Boolean);
 
-    const normalizeStr = s => (s || "").toString().trim().toUpperCase();
-    const parseNum = v => {
-      if (v === undefined || v === null || v === "" || v === "-") return 0;
-      const s = String(v).replace(/,/g, "").replace(/\((.*)\)/, "-$1").trim();
-      const n = parseFloat(s);
-      return isFinite(n) ? n : 0;
-    };
-
-    const shopList = [...new Set(shopBalance.map(r => normalizeStr(r["SHOP"])))].filter(Boolean);
     const zip = new JSZip();
+    let idx = 0;
+    for (const shopNormalized of shopNames) {
+      idx++;
+      setProgressText(`Building CSVs (${idx} / ${shopNames.length})`);
+      document.getElementById("zipProgressCounter").textContent = `${idx} / ${shopNames.length} shops processed`;
 
-    let processed = 0;
-    for (const shopNormalized of shopList) {
-      processed++;
-      progressCounter.textContent = `${processed} / ${shopList.length} shops processed`;
-
-      // 🔹 Find shop data & leader
-      const shopRow = shopBalance.find(r => normalizeStr(r["SHOP"]) === shopNormalized) || {};
+      const shopRow = shopBalance.find(r => (r["SHOP"]||"").toUpperCase() === shopNormalized) || {};
       const teamLeader = shopRow["TEAM LEADER"] || "";
-      const securityDeposit = parseNum(shopRow["SECURITY DEPOSIT"]);
-      const bringForwardBalance = parseNum(shopRow["BRING FORWARD BALANCE"] || shopRow["BRING FORWARD BALANCE "] || shopRow[" BRING FORWARD BALANCE "] || 0);
+      const securityDeposit = parseNumber(shopRow["SECURITY DEPOSIT"]);
+      const bringForwardBalance = parseNumber(shopRow["BRING FORWARD BALANCE"] || shopRow["BRING FORWARD BALANCE "] || 0);
 
-      // 🔹 Find comm rates
-      const shopCommRow = commNorm.find(r => normalizeStr(r["SHOP"]) === shopNormalized) || {};
-      const dpCommRate = parseNum(shopCommRow["DP COMM"]);
-      const wdCommRate = parseNum(shopCommRow["WD COMM"]);
-      const addCommRate = parseNum(shopCommRow["ADD COMM"]);
+      const shopCommRow = commNorm.find(r => (r["SHOP"]||"").toUpperCase() === shopNormalized) || {};
+      const dpCommRate = parseNumber(shopCommRow["DP COMM"]);
+      const wdCommRate = parseNumber(shopCommRow["WD COMM"]);
+      const addCommRate = parseNumber(shopCommRow["ADD COMM"]);
 
-      // 🔹 Find all unique dates
+      // find dates
       const dateSet = new Set([
-        ...depositsNorm.filter(r => normalizeStr(r["SHOP"]) === shopNormalized).map(r => r["DATE"]),
-        ...withdrawalsNorm.filter(r => normalizeStr(r["SHOP"]) === shopNormalized).map(r => r["DATE"]),
-        ...stlmNorm.filter(r => normalizeStr(r["SHOP"]) === shopNormalized).map(r => r["DATE"])
+        ...(depositsNorm||[]).filter(r => (r["SHOP"]||"").toUpperCase() === shopNormalized).map(r => r["DATE"]),
+        ...(withdrawalsNorm||[]).filter(r => (r["SHOP"]||"").toUpperCase() === shopNormalized).map(r => r["DATE"]),
+        ...(stlmNorm||[]).filter(r => (r["SHOP"]||"").toUpperCase() === shopNormalized).map(r => r["DATE"])
       ]);
       const sortedDates = Array.from(dateSet).filter(Boolean).sort((a,b)=> new Date(a)-new Date(b));
 
-      // 🔹 Build CSV
+      // build rows
       const csvRows = [
         [shopNormalized],
         [`Shop Name: ${shopNormalized}`],
@@ -367,32 +320,27 @@ async function downloadAllShops() {
       ];
 
       let runningBalance = bringForwardBalance;
+      csvRows.push(["B/F Balance","0.00","0.00","0.00","0.00","0.00","0.00","0.00",securityDeposit.toFixed(2),"0.00","0.00","0.00",runningBalance.toFixed(2)]);
 
-      csvRows.push([
-        "B/F Balance","0.00","0.00","0.00","0.00","0.00","0.00","0.00",
-        securityDeposit.toFixed(2),"0.00","0.00","0.00",runningBalance.toFixed(2)
-      ]);
+      // helper to sum
+      const sumRows = (arr, date, shop, key, mode=null) => {
+        return (arr||[]).filter(r => ((r["SHOP"]||"").toUpperCase() === shop) && r["DATE"] === date && (mode ? ((r["MODE"]||"").toUpperCase() === mode) : true))
+                        .reduce((s, rr) => s + parseNumber(rr[key] || rr["AMOUNT"] || 0), 0);
+      };
 
       for (const date of sortedDates) {
-        const depTotal = depositsNorm.filter(r => normalizeStr(r["SHOP"]) === shopNormalized && r["DATE"] === date)
-          .reduce((s, rr) => s + parseNum(rr["AMOUNT"]), 0);
-        const wdTotal = withdrawalsNorm.filter(r => normalizeStr(r["SHOP"]) === shopNormalized && r["DATE"] === date)
-          .reduce((s, rr) => s + parseNum(rr["AMOUNT"]), 0);
+        const depTotal = sumRows(depositsNorm, date, shopNormalized, "AMOUNT");
+        const wdTotal = sumRows(withdrawalsNorm, date, shopNormalized, "AMOUNT");
+        const inAmt = sumRows(stlmNorm, date, shopNormalized, "AMOUNT", "IN");
+        const outAmt = sumRows(stlmNorm, date, shopNormalized, "AMOUNT", "OUT");
+        const settlement = sumRows(stlmNorm, date, shopNormalized, "AMOUNT", "SETTLEMENT");
+        const specialPayment = sumRows(stlmNorm, date, shopNormalized, "AMOUNT", "SPECIAL PAYMENT");
+        const adjustment = sumRows(stlmNorm, date, shopNormalized, "AMOUNT", "ADJUSTMENT");
+        const secDepRow = sumRows(stlmNorm, date, shopNormalized, "AMOUNT", "SECURITY DEPOSIT");
 
-        const sumMode = mode => stlmNorm
-          .filter(r => normalizeStr(r["SHOP"]) === shopNormalized && r["DATE"] === date && normalizeStr(r["MODE"]) === mode)
-          .reduce((s, rr) => s + parseNum(rr["AMOUNT"]), 0);
-
-        const inAmt = sumMode("IN");
-        const outAmt = sumMode("OUT");
-        const settlement = sumMode("SETTLEMENT");
-        const specialPayment = sumMode("SPECIAL PAYMENT");
-        const adjustment = sumMode("ADJUSTMENT");
-        const secDepRow = sumMode("SECURITY DEPOSIT");
-
-        const dpComm = (depTotal * dpCommRate / 100);
-        const wdComm = (wdTotal * wdCommRate / 100);
-        const addComm = (depTotal * addCommRate / 100);
+        const dpComm = depTotal * dpCommRate/100;
+        const wdComm = wdTotal * wdCommRate/100;
+        const addComm = depTotal * addCommRate/100;
 
         runningBalance += depTotal - wdTotal + inAmt - outAmt - settlement - specialPayment + adjustment - dpComm - wdComm - addComm;
 
@@ -413,106 +361,122 @@ async function downloadAllShops() {
         ]);
       }
 
-      const csvText = csvRows.map(row =>
-        row.map(cell => `"${String(cell ?? "").replace(/"/g,'""')}"`).join(",")
-      ).join("\n");
+      // Safe totals
+      const totals = {deposit:0,withdrawal:0,in:0,out:0,settlement:0,specialPayment:0,adjustment:0,secDep:0,dpComm:0,wdComm:0,addComm:0};
+      for (const row of csvRows) {
+        if (!row || row.length < 13) continue;
+        if (row[0] === "DATE" || row[0] === "B/F Balance" || row[0] === "TOTAL" || !row[1]) continue;
+        totals.deposit += parseNumber(row[1]);
+        totals.withdrawal += parseNumber(row[2]);
+        totals.in += parseNumber(row[3]);
+        totals.out += parseNumber(row[4]);
+        totals.settlement += parseNumber(row[5]);
+        totals.specialPayment += parseNumber(row[6]);
+        totals.adjustment += parseNumber(row[7]);
+        totals.secDep += parseNumber(row[8]);
+        totals.dpComm += parseNumber(row[9]);
+        totals.wdComm += parseNumber(row[10]);
+        totals.addComm += parseNumber(row[11]);
+      }
 
-      const safeName = shopNormalized.replace(/[\\/:*?"<>|]/g,"_");
+      csvRows.push(["TOTAL",
+        totals.deposit.toFixed(2),
+        totals.withdrawal.toFixed(2),
+        totals.in.toFixed(2),
+        totals.out.toFixed(2),
+        totals.settlement.toFixed(2),
+        totals.specialPayment.toFixed(2),
+        totals.adjustment.toFixed(2),
+        totals.secDep.toFixed(2),
+        totals.dpComm.toFixed(2),
+        totals.wdComm.toFixed(2),
+        totals.addComm.toFixed(2),
+        runningBalance.toFixed(2)
+      ]);
+
+      const csvText = csvRows.map(row => row.map(cell => `"${String(cell??"").replace(/"/g,'""')}"`).join(",")).join("\n");
+      const safeName = (shopNormalized||"UNKNOWN").replace(/[\\/:*?"<>|]/g,"_");
       zip.file(`${safeName}.csv`, csvText);
     }
 
-    progressText.textContent = "Generating ZIP file...";
-    progressCounter.textContent = "";
+    setProgressText("Generating ZIP file...");
+    document.getElementById("zipProgressCounter").textContent = "";
 
     const blob = await zip.generateAsync({ type: "blob" });
     saveAs(blob, `Shop_Daily_Summaries_${new Date().toISOString().slice(0,10)}.zip`);
-
     overlay.remove();
     alert("ZIP download started.");
   } catch (err) {
-    console.error("Failed to build ZIP:", err);
-    const overlay = document.getElementById("zipProgressOverlay");
-    if (overlay) overlay.remove();
-    alert("Failed to create ZIP: " + (err.message || err));
+    console.error("ZIP creation error:", err);
+    overlay.remove();
+    alert("ZIP generation failed: " + (err && err.message ? err.message : err));
   }
 }
 
+function createProgressOverlay(){
+  let overlay = document.getElementById("zipProgressOverlay");
+  if (overlay) return overlay;
+  overlay = document.createElement("div");
+  overlay.id = "zipProgressOverlay";
+  overlay.style.cssText = `position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.45);z-index:99998;`;
+  overlay.innerHTML = `<div style="background:#fff;padding:20px;border-radius:10px;min-width:260px;text-align:center;">
+    <div id="zipProgressText" style="font-weight:600;margin-bottom:8px;">Building ZIP... please wait</div>
+    <div id="zipProgressCounter" style="font-size:13px;color:#555;"></div>
+  </div>`;
+  document.body.appendChild(overlay);
+  return overlay;
+}
+function setProgressText(txt){ const el=document.getElementById("zipProgressText"); if(el) el.textContent=txt; }
+
 /* -------------------------
-   Event wiring & init
+   Init
    ------------------------- */
-document.addEventListener("DOMContentLoaded", async () => {
-  // Attach UI events (filters, search, pagination, reset)
-  document.getElementById("leaderFilter").addEventListener("change", () => {
-    const selectedLeader = document.getElementById("leaderFilter").value;
-    buildGroupDropdown(rawData, selectedLeader);
-    document.getElementById("groupFilter").value = "ALL";
-    filterData();
-  });
-
-  document.getElementById("groupFilter").addEventListener("change", () => {
-    const selectedGroup = document.getElementById("groupFilter").value;
-    if (selectedGroup !== "ALL") {
-      const match = rawData.find(r => (r["GROUP NAME"] || "").trim().toUpperCase() === selectedGroup);
-      if (match) document.getElementById("leaderFilter").value = (match["TEAM LEADER"] || "").trim().toUpperCase();
-    }
-    filterData();
-  });
-
-  document.getElementById("searchInput").addEventListener("input", filterData);
-  document.getElementById("prevPage").addEventListener("click", ()=>{ currentPage = Math.max(1, currentPage-1); renderTable(); });
-  document.getElementById("nextPage").addEventListener("click", ()=>{ currentPage++; renderTable(); });
-
-  // Export CSV (filtered)
-  const exportBtn = document.getElementById("exportBtn");
-  if (exportBtn) exportBtn.addEventListener("click", exportCSV);
-
-  // Download ZIP of individual shop summaries
-  const zipBtn = document.getElementById("downloadAllShopsBtn");
-  if (zipBtn) zipBtn.addEventListener("click", downloadAllShops);
-
-  // Reset button (kept as your UI had it)
-  const resetBtn = document.getElementById("resetBtn");
-  if (resetBtn) resetBtn.addEventListener("click", ()=>{
-    document.getElementById("leaderFilter").disabled = false;
-    document.getElementById("leaderFilter").value="ALL";
-    document.getElementById("groupFilter").value="ALL";
-    document.getElementById("searchInput").value="";
-    buildGroupDropdown(rawData,"ALL");
-    filteredData = cachedData;
-    currentPage = 1;
-    renderTable();
-  });
-
-  // Show PIN modal then load dashboard (modal will call loadDashboard)
+document.addEventListener("DOMContentLoaded", async ()=>{
   try {
-    await showPinModal(); // resolves when unlocked (or rejects)
-    // After unlock, load dashboard
-    try {
-      rawData = await fetchShopsBalance();
-      buildTeamLeaderDropdown(rawData);
-      buildGroupDropdown(rawData, "ALL");
-      buildSummary(rawData);
+    await showPinModal();
+    rawData = await fetchShopsBalance();
+    buildTeamLeaderDropdown(rawData);
+    buildGroupDropdown(rawData);
+    buildSummary(rawData);
 
-      // apply leader filter from URL if present
-      const params = new URLSearchParams(window.location.search);
-      const leaderFromUrl = params.get("teamLeader");
-      if (leaderFromUrl) {
-        const leaderSelect = document.getElementById("leaderFilter");
-        leaderSelect.value = leaderFromUrl.toUpperCase();
-        buildGroupDropdown(rawData, leaderSelect.value);
-        filterData();
+    // Auto-filter + absolute lock if ?teamLeader present
+const params = new URLSearchParams(window.location.search);
+const leaderParam = (params.get("teamLeader") || "").toUpperCase();
+if (leaderParam) {
+  const leaderSelect = document.getElementById("leaderFilter");
+  if (leaderSelect) {
+    leaderSelect.value = leaderParam;
+    leaderSelect.disabled = true; // 🔒 absolute filter
+    buildGroupDropdown(rawData, leaderParam);
+    filterData();
+  }
+  // persist URL param
+  const url = new URL(window.location.href);
+  if (url.searchParams.get("teamLeader") !== leaderParam) {
+    url.searchParams.set("teamLeader", leaderParam);
+    window.history.replaceState({}, "", url.href);
+  }
+}
 
-        leaderSelect.disabled = true;
-        [...leaderSelect.options].forEach(opt => {
-          if (opt.value === "ALL") opt.hidden = true;
-        });
-      }
-    } catch(err) {
-      console.error("Error loading dashboard data:", err);
-      alert("Failed to load dashboard data: " + (err.message || err));
-    }
-  } catch(err) {
-    // user cancelled PIN or failed -> show message and block
-    document.body.innerHTML = `<h2 style="color:red;text-align:center;margin-top:40px;">Access Denied ❌<br>Invalid PIN or cancelled</h2>`;
+    // wire up UI - make sure these IDs exist in your HTML
+    const leaderFilter = document.getElementById("leaderFilter");
+    const groupFilter = document.getElementById("groupFilter");
+    const searchInput = document.getElementById("searchInput");
+    const prevPage = document.getElementById("prevPage");
+    const nextPage = document.getElementById("nextPage");
+    const exportBtn = document.getElementById("exportBtn");          // matches your HTML
+    const zipBtn = document.getElementById("downloadAllShopsBtn");  // matches your HTML
+
+    if (leaderFilter) leaderFilter.addEventListener("change", e => { buildGroupDropdown(rawData, e.target.value); filterData(); });
+    if (groupFilter) groupFilter.addEventListener("change", filterData);
+    if (searchInput) searchInput.addEventListener("input", filterData);
+    if (prevPage) prevPage.addEventListener("click", ()=>{ if(currentPage>1){ currentPage--; renderTable(); }});
+    if (nextPage) nextPage.addEventListener("click", ()=>{ if(currentPage < Math.ceil(filteredData.length/rowsPerPage)){ currentPage++; renderTable(); }});
+    if (exportBtn) exportBtn.addEventListener("click", exportCSV);
+    if (zipBtn) zipBtn.addEventListener("click", downloadAllShops);
+
+  } catch (e) {
+    console.error("Init error:", e);
+    alert("Access denied or failed to load data.");
   }
 });
