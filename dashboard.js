@@ -291,33 +291,43 @@ function createProgressOverlay() {
 
 async function downloadAllShops() {
   try {
-    // overlay
     const overlay = createProgressOverlay();
     const progressText = document.getElementById("zipProgressText");
     const progressCounter = document.getElementById("zipProgressCounter");
     overlay.style.display = "flex";
     progressText.textContent = "Fetching sheets...";
 
-    // fetch once
-    const [deposits, withdrawals, stlm, comm, shopBalance] = await Promise.all([
-      fetch(OPENSHEET.DEPOSIT).then(r=>r.ok? r.json(): [] ),
-      fetch(OPENSHEET.WITHDRAWAL).then(r=>r.ok? r.json(): [] ),
-      fetch(OPENSHEET.STLM).then(r=>r.ok? r.json(): [] ),
-      fetch(OPENSHEET.COMM).then(r=>r.ok? r.json(): [] ),
-      fetch(OPENSHEET.SHOPS_BALANCE).then(r=>r.ok? r.json(): [] )
+    const [deposits, withdrawals, stlm, comm, shopBalanceRaw] = await Promise.all([
+      fetch(OPENSHEET.DEPOSIT).then(r=>r.ok? r.json(): []),
+      fetch(OPENSHEET.WITHDRAWAL).then(r=>r.ok? r.json(): []),
+      fetch(OPENSHEET.STLM).then(r=>r.ok? r.json(): []),
+      fetch(OPENSHEET.COMM).then(r=>r.ok? r.json(): []),
+      fetch(OPENSHEET.SHOPS_BALANCE).then(r=>r.ok? r.json(): [])
     ]);
 
+    // 🔹 Normalize all key names to avoid space or case mismatch
+    const normalizeKeys = obj => {
+      const newObj = {};
+      for (const k in obj) newObj[k.trim().toUpperCase()] = obj[k];
+      return newObj;
+    };
+    const shopBalance = shopBalanceRaw.map(normalizeKeys);
+    const depositsNorm = (deposits || []).map(normalizeKeys);
+    const withdrawalsNorm = (withdrawals || []).map(normalizeKeys);
+    const stlmNorm = (stlm || []).map(normalizeKeys);
+    const commNorm = (comm || []).map(normalizeKeys);
+
     progressText.textContent = "Building CSVs per shop...";
-    // find shops from shopBalance
-    const normalizeStr = s => (s||"").toString().trim().toUpperCase();
+
+    const normalizeStr = s => (s || "").toString().trim().toUpperCase();
     const parseNum = v => {
-      if (v === undefined || v === null || v === "") return 0;
-      const s = String(v).replace(/,/g,"").replace(/\((.*)\)/,"-$1").trim();
+      if (v === undefined || v === null || v === "" || v === "-") return 0;
+      const s = String(v).replace(/,/g, "").replace(/\((.*)\)/, "-$1").trim();
       const n = parseFloat(s);
       return isFinite(n) ? n : 0;
     };
 
-    const shopList = [...new Set((shopBalance || []).map(r => normalizeStr(r["SHOP NAME"] || r["SHOP"]))).values()].filter(Boolean);
+    const shopList = [...new Set(shopBalance.map(r => normalizeStr(r["SHOP"])))].filter(Boolean);
     const zip = new JSZip();
 
     let processed = 0;
@@ -325,29 +335,30 @@ async function downloadAllShops() {
       processed++;
       progressCounter.textContent = `${processed} / ${shopList.length} shops processed`;
 
-      // find comm and shopRow
-      const shopCommRow = (comm || []).find(r => normalizeStr(r.SHOP) === shopNormalized) || {};
+      // 🔹 Find shop data & leader
+      const shopRow = shopBalance.find(r => normalizeStr(r["SHOP"]) === shopNormalized) || {};
+      const teamLeader = shopRow["TEAM LEADER"] || "";
+      const securityDeposit = parseNum(shopRow["SECURITY DEPOSIT"]);
+      const bringForwardBalance = parseNum(shopRow["BRING FORWARD BALANCE"] || shopRow["BRING FORWARD BALANCE "] || shopRow[" BRING FORWARD BALANCE "] || 0);
+
+      // 🔹 Find comm rates
+      const shopCommRow = commNorm.find(r => normalizeStr(r["SHOP"]) === shopNormalized) || {};
       const dpCommRate = parseNum(shopCommRow["DP COMM"]);
       const wdCommRate = parseNum(shopCommRow["WD COMM"]);
       const addCommRate = parseNum(shopCommRow["ADD COMM"]);
 
-      const shopRow = (shopBalance || []).find(r => normalizeStr(r["SHOP NAME"] || r["SHOP"]) === shopNormalized) || {};
-      const bringForwardBalance = parseNum(shopRow["BRING FORWARD BALANCE"]);
-      const securityDeposit = parseNum(shopRow["SECURITY DEPOSIT"]);
-      const teamLeader = shopRow["TEAM LEADER"] || "";
-
-      // dates for shop
+      // 🔹 Find all unique dates
       const dateSet = new Set([
-        ...(deposits || []).filter(r => normalizeStr(r.SHOP) === shopNormalized).map(r => r.DATE),
-        ...(withdrawals || []).filter(r => normalizeStr(r.SHOP) === shopNormalized).map(r => r.DATE),
-        ...(stlm || []).filter(r => normalizeStr(r.SHOP) === shopNormalized).map(r => r.DATE)
+        ...depositsNorm.filter(r => normalizeStr(r["SHOP"]) === shopNormalized).map(r => r["DATE"]),
+        ...withdrawalsNorm.filter(r => normalizeStr(r["SHOP"]) === shopNormalized).map(r => r["DATE"]),
+        ...stlmNorm.filter(r => normalizeStr(r["SHOP"]) === shopNormalized).map(r => r["DATE"])
       ]);
       const sortedDates = Array.from(dateSet).filter(Boolean).sort((a,b)=> new Date(a)-new Date(b));
 
-      // === Add shop header ===
+      // 🔹 Build CSV
       const csvRows = [
         [shopNormalized],
-        [`Shop Name: ${shopRow["SHOP NAME"] || shopRow["SHOP"] || shopNormalized}`],
+        [`Shop Name: ${shopNormalized}`],
         [`Security Deposit: ${securityDeposit.toFixed(2)}`],
         [`Bring Forward Balance: ${bringForwardBalance.toFixed(2)}`],
         [`Team Leader: ${teamLeader}`],
@@ -356,21 +367,21 @@ async function downloadAllShops() {
       ];
 
       let runningBalance = bringForwardBalance;
-      if (bringForwardBalance) {
-        csvRows.push([
-          "B/F Balance","0.00","0.00","0.00","0.00","0.00","0.00","0.00",
-          securityDeposit.toFixed(2),"0.00","0.00","0.00",runningBalance.toFixed(2)
-        ]);
-      }
+
+      csvRows.push([
+        "B/F Balance","0.00","0.00","0.00","0.00","0.00","0.00","0.00",
+        securityDeposit.toFixed(2),"0.00","0.00","0.00",runningBalance.toFixed(2)
+      ]);
 
       for (const date of sortedDates) {
-        const depTotal = (deposits || []).filter(r => normalizeStr(r.SHOP) === shopNormalized && r.DATE === date)
-                          .reduce((s, rr) => s + parseNum(rr.AMOUNT), 0);
-        const wdTotal = (withdrawals || []).filter(r => normalizeStr(r.SHOP) === shopNormalized && r.DATE === date)
-                          .reduce((s, rr) => s + parseNum(rr.AMOUNT), 0);
+        const depTotal = depositsNorm.filter(r => normalizeStr(r["SHOP"]) === shopNormalized && r["DATE"] === date)
+          .reduce((s, rr) => s + parseNum(rr["AMOUNT"]), 0);
+        const wdTotal = withdrawalsNorm.filter(r => normalizeStr(r["SHOP"]) === shopNormalized && r["DATE"] === date)
+          .reduce((s, rr) => s + parseNum(rr["AMOUNT"]), 0);
 
-        const sumMode = mode => (stlm || []).filter(r => normalizeStr(r.SHOP) === shopNormalized && r.DATE === date && normalizeStr(r.MODE) === mode)
-          .reduce((s, rr) => s + parseNum(rr.AMOUNT), 0);
+        const sumMode = mode => stlmNorm
+          .filter(r => normalizeStr(r["SHOP"]) === shopNormalized && r["DATE"] === date && normalizeStr(r["MODE"]) === mode)
+          .reduce((s, rr) => s + parseNum(rr["AMOUNT"]), 0);
 
         const inAmt = sumMode("IN");
         const outAmt = sumMode("OUT");
@@ -402,30 +413,26 @@ async function downloadAllShops() {
         ]);
       }
 
-      // convert to CSV text
-      const csvText = csvRows.map(row => row.map(cell => `"${String(cell === undefined || cell === null ? "" : cell).replace(/"/g,'""')}"`).join(",")).join("\n");
-      const safeName = (shopNormalized || "UNKNOWN").replace(/[\\/:*?"<>|]/g,"_");
+      const csvText = csvRows.map(row =>
+        row.map(cell => `"${String(cell ?? "").replace(/"/g,'""')}"`).join(",")
+      ).join("\n");
+
+      const safeName = shopNormalized.replace(/[\\/:*?"<>|]/g,"_");
       zip.file(`${safeName}.csv`, csvText);
     }
 
     progressText.textContent = "Generating ZIP file...";
     progressCounter.textContent = "";
 
-    const blob = await zip.generateAsync({ type: "blob" }, metadata => {
-      // optional: metadata.percent available, but because we generate all in-memory, this may not be detailed per-file
-      // we will not update UI often here to avoid flicker
-    });
+    const blob = await zip.generateAsync({ type: "blob" });
+    saveAs(blob, `Shop_Daily_Summaries_${new Date().toISOString().slice(0,10)}.zip`);
 
-    const zipName = `Shop_Daily_Summaries_${new Date().toISOString().slice(0,10)}.zip`;
-    saveAs(blob, zipName);
-
-    overlay.style.display = "none";
     overlay.remove();
     alert("ZIP download started.");
   } catch (err) {
     console.error("Failed to build ZIP:", err);
     const overlay = document.getElementById("zipProgressOverlay");
-    if (overlay) { overlay.remove(); }
+    if (overlay) overlay.remove();
     alert("Failed to create ZIP: " + (err.message || err));
   }
 }
