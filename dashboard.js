@@ -1,8 +1,12 @@
-// Dashboard with CSV and ZIP download functionality
+// Dashboard with CSV + ZIP (detailed daily transactions per shop) download
 const SHEET_ID = "1lukJC1vKSq02Nus23svZ21_pp-86fz0mU1EARjalCBI";
 const OPENSHEET_BASE = `https://opensheet.elk.sh/${SHEET_ID}`;
 const OPENSHEET = {
-  SHOPS_BALANCE: `${OPENSHEET_BASE}/SHOPS%20BALANCE`
+  SHOPS_BALANCE: `${OPENSHEET_BASE}/SHOPS%20BALANCE`,
+  DEPOSIT: `${OPENSHEET_BASE}/TOTAL%20DEPOSIT`,
+  WITHDRAWAL: `${OPENSHEET_BASE}/TOTAL%20WITHDRAWAL`,
+  STLM: `${OPENSHEET_BASE}/STLM%2FTOPUP`,
+  COMM: `${OPENSHEET_BASE}/COMM`
 };
 
 const HEADERS = [
@@ -27,17 +31,17 @@ const normalize = row => {
 let rawData = [], cachedData = [], filteredData = [];
 let currentPage = 1, rowsPerPage = 20;
 
+// Fetch summary sheet
 async function fetchShopsBalance(){
   const res = await fetch(OPENSHEET.SHOPS_BALANCE);
   if(!res.ok) throw new Error(`HTTP ${res.status}`);
-  const json = await res.json();
-  return json.map(normalize);
+  return (await res.json()).map(normalize);
 }
 
 async function loadDashboard(){
-  try{
+  try {
     rawData = await fetchShopsBalance();
-  } catch(e){
+  } catch (e) {
     console.error("Error fetching shops balance:", e);
     alert("Failed to load shop balance. Check network and sheet name.");
     return;
@@ -47,7 +51,6 @@ async function loadDashboard(){
   buildGroupDropdown(rawData, "ALL");
   buildSummary(rawData);
 
-  // Auto filter from URL parameter
   const params = new URLSearchParams(window.location.search);
   const leaderFromUrl = params.get("teamLeader");
   if (leaderFromUrl) {
@@ -102,18 +105,13 @@ function buildSummary(data){
      "ADJUSTMENT","DP COMM","WD COMM","ADD COMM"].forEach(key=>{
       summary[shop][key] = (summary[shop][key] || 0) + parseNumber(r[key]);
     });
-    summary[shop]["RUNNING BALANCE"] =
+    summary[shop]["RUNNING BALANCE"] = 
       (summary[shop]["BRING FORWARD BALANCE"]||0) +
-      (summary[shop]["TOTAL DEPOSIT"]||0) -
-      (summary[shop]["TOTAL WITHDRAWAL"]||0) +
-      (summary[shop]["INTERNAL TRANSFER IN"]||0) -
-      (summary[shop]["INTERNAL TRANSAFER OUT"]||0) -
-      (summary[shop]["SETTLEMENT"]||0) -
-      (summary[shop]["SPECIAL PAYMENT"]||0) +
-      (summary[shop]["ADJUSTMENT"]||0) -
-      (summary[shop]["DP COMM"]||0) -
-      (summary[shop]["WD COMM"]||0) -
-      (summary[shop]["ADD COMM"]||0);
+      (summary[shop]["TOTAL DEPOSIT"]||0) - (summary[shop]["TOTAL WITHDRAWAL"]||0) +
+      (summary[shop]["INTERNAL TRANSFER IN"]||0) - (summary[shop]["INTERNAL TRANSAFER OUT"]||0) -
+      (summary[shop]["SETTLEMENT"]||0) - (summary[shop]["SPECIAL PAYMENT"]||0) +
+      (summary[shop]["ADJUSTMENT"]||0) - (summary[shop]["DP COMM"]||0) -
+      (summary[shop]["WD COMM"]||0) - (summary[shop]["ADD COMM"]||0);
     summary[shop]["WALLET NUMBER"] = r["WALLET NUMBER"] || summary[shop]["WALLET NUMBER"];
   });
   cachedData = Object.values(summary);
@@ -202,60 +200,144 @@ function filterData(){
   currentPage = 1; renderTable();
 }
 
-/* ---------- CSV + ZIP Export Functions ---------- */
-function convertToCSV(data, headers) {
-  const csvRows = [];
-  csvRows.push(headers.join(","));
-  for (const row of data) {
-    const values = headers.map(h => {
-      let val = row[h] ?? "";
-      val = typeof val === "number" ? val.toFixed(2) : String(val).replace(/"/g, '""');
-      return `"${val}"`;
+/* ---------- CSV Export (current filteredData) ---------- */
+function exportCSV(){
+  if (!filteredData.length) { alert("No data to export"); return; }
+  const rows = [HEADERS.join(",")];
+  filteredData.forEach(r=>{
+    const row = HEADERS.map(h=> {
+      const v = (r[h] === undefined || r[h] === null) ? "" : String(r[h]);
+      return `"${v.replace(/"/g,'""')}"`;
     });
-    csvRows.push(values.join(","));
-  }
-  return csvRows.join("\n");
+    rows.push(row.join(","));
+  });
+  const blob = new Blob([rows.join("\n")], {type:"text/csv;charset=utf-8"});
+  saveAs(blob, `Shops_Summary_${new Date().toISOString().slice(0,10)}.csv`);
 }
 
-// Export current filtered table
-document.getElementById("exportBtn").addEventListener("click", () => {
-  if (!filteredData.length) {
-    alert("No data to export!");
-    return;
+/* ---------- Build detailed daily-transaction CSVs for each shop and ZIP them ---------- */
+async function downloadAllShops() {
+  try {
+    // Fetch all sheets we need (single batch)
+    const [deposits, withdrawals, stlm, comm, shopBalance] = await Promise.all([
+      fetch(OPENSHEET.DEPOSIT).then(r => r.json()),
+      fetch(OPENSHEET.WITHDRAWAL).then(r => r.json()),
+      fetch(OPENSHEET.STLM).then(r => r.json()),
+      fetch(OPENSHEET.COMM).then(r => r.json()),
+      fetch(OPENSHEET.SHOPS_BALANCE).then(r => r.json())
+    ]);
+
+    const zip = new JSZip();
+    const normalizeStr = s => (s||"").toString().trim().toUpperCase();
+    const parseNum = v => {
+      if (v === undefined || v === null || v === "") return 0;
+      const s = String(v).replace(/,/g,"").replace(/\((.*)\)/,"-$1").trim();
+      const n = parseFloat(s);
+      return isFinite(n) ? n : 0;
+    };
+
+    // Build list of shops from shopBalance sheet (use SHOP NAME or SHOP)
+    const allShops = [...new Set((shopBalance || []).map(r => normalizeStr(r["SHOP NAME"] || r["SHOP"]))).values()].filter(Boolean);
+
+    // For each shop, build the same daily transaction rows as shop_dashboard.js
+    for (const shopNormalized of allShops) {
+      // find commission row and shop balance row
+      const shopCommRow = (comm || []).find(r => normalizeStr(r.SHOP) === shopNormalized) || {};
+      const dpCommRate = parseNum(shopCommRow["DP COMM"]);
+      const wdCommRate = parseNum(shopCommRow["WD COMM"]);
+      const addCommRate = parseNum(shopCommRow["ADD COMM"]);
+
+      const shopRow = (shopBalance || []).find(r => normalizeStr(r["SHOP NAME"] || r["SHOP"]) === shopNormalized) || {};
+      const bringForwardBalance = parseNum(shopRow["BRING FORWARD BALANCE"]);
+      const securityDeposit = parseNum(shopRow["SECURITY DEPOSIT"]);
+
+      // collect all dates for this shop across deposits, withdrawals, stlm
+      const dateSet = new Set([
+        ...(deposits || []).filter(r => normalizeStr(r.SHOP) === shopNormalized).map(r => r.DATE),
+        ...(withdrawals || []).filter(r => normalizeStr(r.SHOP) === shopNormalized).map(r => r.DATE),
+        ...(stlm || []).filter(r => normalizeStr(r.SHOP) === shopNormalized).map(r => r.DATE)
+      ]);
+      const sortedDates = Array.from(dateSet).filter(Boolean).sort((a,b)=> new Date(a) - new Date(b));
+
+      // CSV header for daily transactions (match shop_dashboard)
+      const csvRows = [];
+      csvRows.push(["DATE","DEPOSIT","WITHDRAWAL","IN","OUT","SETTLEMENT","SPECIAL PAYMENT","ADJUSTMENT","SEC DEPOSIT","DP COMM","WD COMM","ADD COMM","BALANCE"]);
+
+      let runningBalance = bringForwardBalance;
+
+      // Add B/F row if exists
+      if (bringForwardBalance) {
+        csvRows.push([
+          "B/F Balance",
+          "0.00","0.00","0.00","0.00","0.00","0.00","0.00",
+          securityDeposit.toFixed(2),
+          "0.00","0.00","0.00",
+          runningBalance.toFixed(2)
+        ]);
+      }
+
+      // For each date, compute totals and update runningBalance
+      for (const date of sortedDates) {
+        const depTotal = (deposits || []).filter(r => normalizeStr(r.SHOP) === shopNormalized && r.DATE === date)
+                          .reduce((s, rr) => s + parseNum(rr.AMOUNT), 0);
+        const wdTotal = (withdrawals || []).filter(r => normalizeStr(r.SHOP) === shopNormalized && r.DATE === date)
+                          .reduce((s, rr) => s + parseNum(rr.AMOUNT), 0);
+
+        // helper to sum stlm by MODE
+        const sumMode = mode => (stlm || [])
+          .filter(r => normalizeStr(r.SHOP) === shopNormalized && r.DATE === date && normalizeStr(r.MODE) === mode)
+          .reduce((s, rr) => s + parseNum(rr.AMOUNT), 0);
+
+        const inAmt = sumMode("IN");
+        const outAmt = sumMode("OUT");
+        const settlement = sumMode("SETTLEMENT");
+        const specialPayment = sumMode("SPECIAL PAYMENT");
+        const adjustment = sumMode("ADJUSTMENT");
+        const secDepRow = sumMode("SECURITY DEPOSIT");
+
+        const dpComm = (depTotal * dpCommRate / 100);
+        const wdComm = (wdTotal * wdCommRate / 100);
+        const addComm = (depTotal * addCommRate / 100);
+
+        runningBalance += depTotal - wdTotal + inAmt - outAmt - settlement - specialPayment + adjustment - dpComm - wdComm - addComm;
+
+        csvRows.push([
+          date,
+          depTotal.toFixed(2),
+          wdTotal.toFixed(2),
+          inAmt.toFixed(2),
+          outAmt.toFixed(2),
+          settlement.toFixed(2),
+          specialPayment.toFixed(2),
+          adjustment.toFixed(2),
+          secDepRow.toFixed(2),
+          dpComm.toFixed(2),
+          wdComm.toFixed(2),
+          addComm.toFixed(2),
+          runningBalance.toFixed(2)
+        ]);
+      }
+
+      // Convert csvRows to CSV text with safe quoting
+      const csvText = csvRows.map(row => row.map(cell => {
+        const s = String(cell === undefined || cell === null ? "" : cell);
+        return `"${s.replace(/"/g,'""')}"`;
+      }).join(",")).join("\n");
+
+      // safe filename
+      const shopDisplay = (shopNormalized || "UNKNOWN").replace(/[\\/:*?"<>|]/g, "_");
+      zip.file(`${shopDisplay}.csv`, csvText);
+    }
+
+    const blob = await zip.generateAsync({ type: "blob" });
+    saveAs(blob, `Shop_Daily_Summaries_${new Date().toISOString().slice(0,10)}.zip`);
+  } catch (err) {
+    console.error("Error creating ZIP:", err);
+    alert("Failed to create ZIP: " + (err.message || err));
   }
-  const csv = convertToCSV(filteredData, HEADERS);
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const filename = `Shop_Balance_${new Date().toISOString().split("T")[0]}.csv`;
-  saveAs(blob, filename);
-});
+}
 
-// Download ZIP with individual shop CSVs
-document.getElementById("downloadAllShopsBtn").addEventListener("click", async () => {
-  if (!cachedData.length) {
-    alert("No data available!");
-    return;
-  }
-
-  const zip = new JSZip();
-  const grouped = {};
-  cachedData.forEach(row => {
-    const shop = row["SHOP NAME"] || "UNKNOWN";
-    if (!grouped[shop]) grouped[shop] = [];
-    grouped[shop].push(row);
-  });
-
-  for (const shop of Object.keys(grouped)) {
-    const csv = convertToCSV(grouped[shop], HEADERS);
-    const safeName = shop.replace(/[\\/:*?"<>|]/g, "_");
-    zip.file(`${safeName}.csv`, csv);
-  }
-
-  const blob = await zip.generateAsync({ type: "blob" });
-  const filename = `Shop_Summaries_${new Date().toISOString().split("T")[0]}.zip`;
-  saveAs(blob, filename);
-});
-
-/* ---------- Event Listeners ---------- */
+/* ---------- Event wiring ---------- */
 document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("leaderFilter").addEventListener("change", () => {
     const selectedLeader = document.getElementById("leaderFilter").value;
@@ -274,8 +356,11 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   document.getElementById("searchInput").addEventListener("input", filterData);
-  document.getElementById("prevPage").addEventListener("click", ()=>{ currentPage--; renderTable(); });
+  document.getElementById("prevPage").addEventListener("click", ()=>{ currentPage = Math.max(1, currentPage-1); renderTable(); });
   document.getElementById("nextPage").addEventListener("click", ()=>{ currentPage++; renderTable(); });
+
+  document.getElementById("exportBtn").addEventListener("click", exportCSV);
+  document.getElementById("downloadAllShopsBtn").addEventListener("click", downloadAllShops);
 
   loadDashboard();
 });
