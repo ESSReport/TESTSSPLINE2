@@ -8,18 +8,8 @@
   <link rel="stylesheet" href="styles.css">
 
   <!-- JSZip & FileSaver -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
-
-  <!-- Simple PIN Protection -->
-  <script>
-    const encodedPass = "MTEwMTIwMjU="; // base64 for "11012025"
-    const entered = prompt("Enter PIN to access dashboard:");
-    if (btoa(entered) !== encodedPass) {
-      document.body.innerHTML = `<h2 style="color:red;text-align:center;margin-top:40px;">Access Denied ❌<br>Invalid PIN</h2>`;
-      throw new Error("Access denied");
-    }
-  </script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
 
   <style>
     body {
@@ -81,6 +71,7 @@
     .total-card div:last-child { font-size: 1.1rem; font-weight: bold; }
   </style>
 </head>
+
 <body>
   <h2>Shops Balance Summary</h2>
 
@@ -109,6 +100,22 @@
 
   <div id="totalsRow" style="margin-top:12px;"></div>
 
+  <!-- PIN Protection (runs safely after DOM load) -->
+  <script>
+  window.addEventListener("DOMContentLoaded", () => {
+    const encodedPass = "MTEwMTIwMjU="; // base64 for "11012025"
+    const entered = prompt("Enter PIN to access dashboard:");
+    if (!entered || btoa(entered) !== encodedPass) {
+      document.body.innerHTML = `
+        <h2 style="color:red;text-align:center;margin-top:40px;">
+          Access Denied ❌<br>Invalid PIN
+        </h2>`;
+      throw new Error("Access denied");
+    }
+  });
+  </script>
+
+  <!-- Main Dashboard Script -->
   <script src="dashboard.js"></script>
 </body>
 </html>
