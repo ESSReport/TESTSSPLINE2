@@ -334,6 +334,7 @@ async function downloadAllShops() {
       const shopRow = (shopBalance || []).find(r => normalizeStr(r["SHOP NAME"] || r["SHOP"]) === shopNormalized) || {};
       const bringForwardBalance = parseNum(shopRow["BRING FORWARD BALANCE"]);
       const securityDeposit = parseNum(shopRow["SECURITY DEPOSIT"]);
+      const teamLeader = shopRow["TEAM LEADER"] || "";
 
       // dates for shop
       const dateSet = new Set([
@@ -343,9 +344,16 @@ async function downloadAllShops() {
       ]);
       const sortedDates = Array.from(dateSet).filter(Boolean).sort((a,b)=> new Date(a)-new Date(b));
 
-      // build csv rows same as shop_dashboard.js
-      const csvRows = [];
-      csvRows.push(["DATE","DEPOSIT","WITHDRAWAL","IN","OUT","SETTLEMENT","SPECIAL PAYMENT","ADJUSTMENT","SEC DEPOSIT","DP COMM","WD COMM","ADD COMM","BALANCE"]);
+      // === Add shop header ===
+      const csvRows = [
+        [shopNormalized],
+        [`Shop Name: ${shopRow["SHOP NAME"] || shopRow["SHOP"] || shopNormalized}`],
+        [`Security Deposit: ${securityDeposit.toFixed(2)}`],
+        [`Bring Forward Balance: ${bringForwardBalance.toFixed(2)}`],
+        [`Team Leader: ${teamLeader}`],
+        [],
+        ["DATE","DEPOSIT","WITHDRAWAL","IN","OUT","SETTLEMENT","SPECIAL PAYMENT","ADJUSTMENT","SEC DEPOSIT","DP COMM","WD COMM","ADD COMM","BALANCE"]
+      ];
 
       let runningBalance = bringForwardBalance;
       if (bringForwardBalance) {
