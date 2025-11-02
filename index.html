@@ -1,115 +1,81 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>SSP Line2 Balance Dashboard</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Shop Balance Dashboard</title>
 
-  <link rel="stylesheet" href="styles.css">
-
-  <!-- JSZip & FileSaver -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
-
-  <!-- Simple PIN Protection -->
+  <!-- ✅ PIN check runs before any DOM is built -->
   <script>
-    const encodedPass = "MTEwMTIwMjU="; // base64 for "11012025"
-    const entered = prompt("Enter PIN to access dashboard:");
-    if (btoa(entered) !== encodedPass) {
-      document.body.innerHTML = `<h2 style="color:red;text-align:center;margin-top:40px;">Access Denied ❌<br>Invalid PIN</h2>`;
-      throw new Error("Access denied");
-    }
+    (function(){
+      const encoded = "MTEwMTIwMjU="; // "11012025"
+      const entered = prompt("🔐 Enter PIN to access dashboard:");
+      if (!entered || btoa(entered) !== encoded) {
+        document.write(`
+          <style>
+            body{
+              display:flex;
+              justify-content:center;
+              align-items:center;
+              height:100vh;
+              background:#fff3f3;
+              color:#c00;
+              font-family:Arial,sans-serif;
+              text-align:center;
+            }
+          </style>
+          <body><h2>❌ Access Denied<br>Invalid PIN</h2></body>
+        `);
+        document.close();
+        window.stop();   // hard stop: no further parsing or JS
+      }
+    })();
   </script>
 
   <style>
-    body {
-      font-family: "Segoe UI", Arial, sans-serif;
-      padding: 18px;
-      background: #f7f9fb;
-      color: #222;
-    }
-    h2 { margin: 0 0 12px 0; }
-
-    .toolbar {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      flex-wrap: wrap;
-      margin-bottom: 12px;
-    }
-    input[type="text"], select {
-      padding: 8px;
-      border-radius: 6px;
-      border: 1px solid #ccc;
-    }
-    button {
-      padding: 8px 12px;
-      border-radius: 6px;
-      border: none;
-      cursor: pointer;
-    }
-    #exportBtn { background: #0077cc; color: #fff; }
-    #downloadAllShopsBtn { background: #2d9c2d; color: #fff; }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      background: #fff;
-    }
-    th, td {
-      padding: 8px;
-      border: 1px solid #e3e6ea;
-    }
-    th {
-      background: #0077cc;
-      color: #fff;
-      position: sticky;
-      top: 0;
-    }
-
-    .total-card {
-      display: inline-block;
-      margin: 6px;
-      padding: 10px 14px;
-      background: #0077cc;
-      color: #fff;
-      border-radius: 6px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-      font-weight: 500;
-    }
-    .total-card div:first-child { font-size: 0.85rem; opacity: 0.9; }
-    .total-card div:last-child { font-size: 1.1rem; font-weight: bold; }
+    body { font-family:"Segoe UI",sans-serif; background:#f6f8fa; padding:20px; }
+    h1 { text-align:center; margin-bottom:20px; }
+    table { border-collapse:collapse; width:100%; background:#fff; }
+    th,td { border:1px solid #ccc; padding:8px; text-align:center; }
+    th { background:#0077cc; color:#fff; }
+    tr:nth-child(even){ background:#f2f2f2; }
+    button { background:#0077cc; color:#fff; border:none; padding:8px 12px; border-radius:5px; cursor:pointer; }
+    button:hover { background:#005fa3; }
+    .controls { display:flex; flex-wrap:wrap; justify-content:center; gap:10px; margin-bottom:15px; }
+    #totalsRow { display:flex; flex-wrap:wrap; gap:8px; margin-top:15px; }
+    .total-card { background:#fff; padding:10px; border-radius:8px; box-shadow:0 2px 4px rgba(0,0,0,0.1); flex:1 1 150px; text-align:center; }
   </style>
 </head>
+
 <body>
-  <h2>Shops Balance Summary</h2>
+  <h1>📊 Shop Balance Dashboard</h1>
 
-  <div class="toolbar">
-    <select id="leaderFilter"><option value="ALL">All Team Leaders</option></select>
-    <select id="groupFilter"><option value="ALL">All Groups</option></select>
-    <input id="searchInput" type="text" placeholder="🔍 Search Shop Name..." />
-
-    <button id="exportBtn">💾 Export CSV</button>
-    <button id="downloadAllShopsBtn">📥 Download Individual Summaries (ZIP)</button>
+  <div class="controls">
+    <select id="leaderFilter"></select>
+    <select id="groupFilter"></select>
+    <input id="searchInput" type="text" placeholder="Search Shop..." />
+    <button id="exportBtn">⬇️ Export CSV</button>
+    <button id="downloadAllShopsBtn">🗂 Download All Summaries (ZIP)</button>
   </div>
 
   <div id="teamDashboardLink"></div>
 
-  <div id="tableContainer">
-    <table id="shopTable">
-      <thead><tr id="tableHeader"></tr></thead>
-      <tbody id="tableBody"></tbody>
-    </table>
+  <table>
+    <thead><tr id="tableHeader"></tr></thead>
+    <tbody id="tableBody"></tbody>
+  </table>
+
+  <div style="display:flex;justify-content:center;align-items:center;gap:10px;margin-top:10px;">
+    <button id="prevPage">◀ Prev</button>
+    <span id="pageInfo">Page 1</span>
+    <button id="nextPage">Next ▶</button>
   </div>
 
-  <div id="pagination" style="margin-top:10px;">
-    <button id="prevPage" disabled>⬅ Prev</button>
-    <span id="pageInfo" style="margin:0 12px;">Page 1</span>
-    <button id="nextPage">Next ➡</button>
-  </div>
+  <div id="totalsRow"></div>
 
-  <div id="totalsRow" style="margin-top:12px;"></div>
-
+  <!-- Libraries -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="dashboard.js"></script>
 </body>
 </html>
