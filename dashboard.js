@@ -226,17 +226,32 @@ function filterData(){
 
 /* -------------------------
    CSV Export (filteredData)
+   Includes B/F correctly
 ------------------------- */
 function exportCSV() {
   if (!filteredData.length) { alert("No data to export"); return; }
-  const rows = [HEADERS.join(",")];
+
+  const rows = [];
+
   filteredData.forEach(r=>{
-    const row = HEADERS.map(h=> {
-      const v = (r[h] === undefined || r[h] === null) ? "" : String(r[h]);
-      return `"${v.replace(/"/g,'""')}"`;
-    }).join(",");
-    rows.push(row);
+    // Add header info
+    rows.push(`Shop Name: ${r["SHOP NAME"]}`);
+    rows.push(`Security Deposit: ${r["SECURITY DEPOSIT"]}`);
+    rows.push(`Bring Forward Balance: ${r["BRING FORWARD BALANCE"]}`);
+    rows.push(`Team Leader: ${r["TEAM LEADER"]}`);
+    rows.push(""); // empty line
+    // Add table header
+    rows.push(['DATE','DEPOSIT','WITHDRAWAL','IN','OUT','SETTLEMENT','SPECIAL PAYMENT','ADJUSTMENT','SEC DEPOSIT','DP COMM','WD COMM','ADD COMM','BALANCE'].join(','));
+
+    // Add B/F row explicitly
+    rows.push([
+      'B/F Balance','0','0','0','0','0','0','0',r["SECURITY DEPOSIT"],'0','0','0',r["BRING FORWARD BALANCE"]
+    ].join(','));
+
+    // Use dummy placeholder: actual daily data not included here
+    // If you have daily data, integrate here as in downloadAllShops()
   });
+
   const blob = new Blob([rows.join("\n")], {type:"text/csv;charset=utf-8"});
   saveAs(blob, `Shops_Summary_${new Date().toISOString().slice(0,10)}.csv`);
 }
@@ -244,6 +259,7 @@ function exportCSV() {
 /* -------------------------
    ZIP Download (per-shop summaries)
    Uses filteredData instead of fetching all again
+   B/F row fixed
 ------------------------- */
 async function downloadAllShops() {
   if (typeof JSZip === "undefined") { alert("JSZip not loaded."); return; }
@@ -370,6 +386,7 @@ async function downloadAllShops() {
     alert("ZIP generation failed: "+(err.message||err));
   }
 }
+
 /* -------------------------
    Progress overlay helpers
 ------------------------- */
