@@ -1,5 +1,3 @@
-// dashboard.js - Final (COMM rates, commission totals only in CSV bottom, safe listeners)
-
 /* -------------------------
    Configuration / Helpers
    ------------------------- */
@@ -234,7 +232,6 @@ function filterData(){
    ------------------------- */
 function exportCSV() {
   if (!filteredData.length) { alert("No data to export"); return; }
-  // header row
   const rows = [HEADERS.join(",")];
   filteredData.forEach(r=>{
     const row = HEADERS.map(h=> {
@@ -245,17 +242,16 @@ function exportCSV() {
   });
   const blob = new Blob([rows.join("\n")], {type:"text/csv;charset=utf-8"});
   if (typeof saveAs !== "function") { alert("Download failed: FileSaver.js not loaded."); return; }
-  saveAs(blob, `Shops_Summary_${new Date().toISOString().slice(0,10)}.csv`);
+  saveAs(blob, `Shops_Summary_${new Date().
+toISOString().slice(0,10)}.csv`);
 }
 
 /* -------------------------
-   ZIP Download (per-shop CSVs) - uses COMM tab rates
-   - commissions applied to balance, but per-row columns left blank
-   - totals for DP COMM / WD COMM / ADD COMM appear only in the TOTAL row
+   ZIP Download (per-shop CSVs) - updated to show correct DP/WD/ADD COMM per row
    ------------------------- */
 async function downloadAllShops() {
-  if (typeof JSZip === "undefined") { alert("JSZip not loaded. Include JSZip before this script."); return; }
-  if (typeof saveAs === "undefined") { alert("FileSaver (saveAs) not loaded. Include FileSaver.js before this script."); return; }
+  if (typeof JSZip === "undefined") { alert("JSZip not loaded."); return; }
+  if (typeof saveAs === "undefined") { alert("FileSaver.js not loaded."); return; }
 
   const overlay = createProgressOverlay();
   try {
@@ -328,16 +324,14 @@ async function downloadAllShops() {
       // running balance starts with bring forward
       let runningBalance = bringForwardBalance;
 
-      // push B/F row (comm columns blank)
-      csvRows.push(["B/F Balance","0.00","0.00","0.00","0.00","0.00","0.00","0.00",securityDeposit.toFixed(2),"","","","",runningBalance.toFixed(2)]);
+      // push B/F row
+      csvRows.push(["B/F Balance","0.00","0.00","0.00","0.00","0.00","0.00","0.00",securityDeposit.toFixed(2),"0.00","0.00","0.00",runningBalance.toFixed(2)]);
 
-      // helpers
       const sumRows = (arr, date, shop, key, mode=null) => {
         return (arr||[]).filter(r => ((r["SHOP"]||"").toUpperCase() === shop) && (r["DATE"] === date) && (mode ? ((r["MODE"]||"").toUpperCase() === mode) : true))
                         .reduce((s, rr) => s + parseNumber(rr[key] || rr["AMOUNT"] || 0), 0);
       };
 
-      // accumulate commission totals
       let totalDpComm = 0, totalWdComm = 0, totalAddComm = 0;
 
       for (const date of sortedDates) {
@@ -350,20 +344,18 @@ async function downloadAllShops() {
         const adjustment = sumRows(stlmNorm, date, shopNormalized, "AMOUNT", "ADJUSTMENT");
         const secDepRow = sumRows(stlmNorm, date, shopNormalized, "AMOUNT", "SECURITY DEPOSIT");
 
-        // compute commissions (rates are percent values in COMM)
+        // compute commissions per row
         const dpComm = depTotal * (dpCommRate / 100);
         const wdComm = wdTotal * (wdCommRate / 100);
         const addComm = depTotal * (addCommRate / 100);
 
-        // accumulate totals (for bottom TOTAL row)
         totalDpComm += dpComm;
         totalWdComm += wdComm;
         totalAddComm += addComm;
 
-        // apply to running balance (commissions reduce balance)
+        // apply to running balance
         runningBalance += depTotal - wdTotal + inAmt - outAmt - settlement - specialPayment + adjustment - dpComm - wdComm - addComm;
 
-        // push row: leave DP/WD/ADD COMM cells blank per your request (totals shown only at bottom)
         csvRows.push([
           date,
           depTotal.toFixed(2),
@@ -374,18 +366,18 @@ async function downloadAllShops() {
           specialPayment.toFixed(2),
           adjustment.toFixed(2),
           secDepRow.toFixed(2),
-          "", // DP COMM per-row hidden
-          "", // WD COMM per-row hidden
-          "", // ADD COMM per-row hidden
+          dpComm.toFixed(2),
+          wdComm.toFixed(2),
+          addComm.toFixed(2),
           runningBalance.toFixed(2)
         ]);
       }
 
-      // compute totals for visible columns and commissions
+      // push TOTAL row
       const totals = {deposit:0,withdrawal:0,in:0,out:0,settlement:0,specialPayment:0,adjustment:0,secDep:0};
       for (const row of csvRows) {
         if (!row || row.length < 13) continue;
-        if (row[0] === "DATE" || row[0] === "B/F Balance" || row[0] === "TOTAL") continue;
+        if (row[0]==="DATE"||row[0]==="B/F Balance"||row[0]==="TOTAL") continue;
         totals.deposit += parseNumber(row[1]);
         totals.withdrawal += parseNumber(row[2]);
         totals.in += parseNumber(row[3]);
@@ -396,7 +388,6 @@ async function downloadAllShops() {
         totals.secDep += parseNumber(row[8]);
       }
 
-      // push TOTAL row — include commission totals here (formatted)
       csvRows.push([
         "TOTAL",
         totals.deposit.toFixed(2),
@@ -413,7 +404,7 @@ async function downloadAllShops() {
         runningBalance.toFixed(2)
       ]);
 
-      // build csv safe text (quote cells)
+      // save CSV
       const csvText = csvRows.map(row => row.map(cell => `"${String(cell ?? "").replace(/"/g,'""')}"`).join(",")).join("\n");
       const safeName = (shopNormalized||"UNKNOWN").replace(/[\\\/:*?"<>|]/g,"_");
       zip.file(`${safeName}.csv`, csvText);
@@ -421,7 +412,6 @@ async function downloadAllShops() {
 
     setProgressText("Generating ZIP file...");
     document.getElementById("zipProgressCounter").textContent = "";
-
     const blob = await zip.generateAsync({ type: "blob" });
     saveAs(blob, `Shop_Daily_Summaries_${new Date().toISOString().slice(0,10)}.zip`);
     removeProgressOverlay();
@@ -429,7 +419,7 @@ async function downloadAllShops() {
   } catch (err) {
     console.error("ZIP creation error:", err);
     removeProgressOverlay();
-    alert("ZIP generation failed: " + (err && err.message ? err.message : err));
+    alert("ZIP generation failed: " + (err.message || err));
   }
 }
 
@@ -452,7 +442,7 @@ function setProgressText(txt){ const el=document.getElementById("zipProgressText
 function removeProgressOverlay(){ const el=document.getElementById("zipProgressOverlay"); if(el) el.remove(); }
 
 /* -------------------------
-   Event binding (safe)
+   Event binding
    ------------------------- */
 document.addEventListener("DOMContentLoaded", async () => {
   try {
@@ -463,14 +453,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     buildGroupDropdown(rawData);
     updateTeamDashboardLink();
 
-    // safe listeners: check multiple possible IDs (covers variations)
     const listeners = [
       ["leaderFilter","change", () => { buildGroupDropdown(rawData, document.getElementById("leaderFilter").value); filterData(); }],
       ["groupFilter","change", filterData],
       ["searchInput","input", filterData],
       ["prevPage","click", () => { if (currentPage>1){ currentPage--; renderTable(); } }],
       ["nextPage","click", () => { if (currentPage < Math.ceil(filteredData.length/rowsPerPage)) { currentPage++; renderTable(); } }],
-      // support both possible HTML IDs for the CSV/ZIP buttons used before
       ["exportBtn","click", exportCSV],
       ["downloadAllShopsBtn","click", downloadAllShops],
       ["downloadCsv","click", exportCSV],
@@ -479,10 +467,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     listeners.forEach(([id,evt,fn])=>{
       const el=document.getElementById(id);
       if (el) el.addEventListener(evt,fn);
-      else console.debug(`No element #${id} to attach ${evt}`);
     });
 
-    // If ?teamLeader param present -> lock filter
     const params = new URLSearchParams(window.location.search);
     const leaderParam = (params.get("teamLeader") || "").toUpperCase();
     if (leaderParam) {
@@ -494,9 +480,9 @@ document.addEventListener("DOMContentLoaded", async () => {
         filterData();
       }
     }
-
   } catch (err) {
     console.error("Init error:", err);
-    alert("Failed to load dashboard: " + (err && err.message ? err.message : err));
+    alert("Failed to load dashboard: " + (err.message || err));
   }
 });
+
