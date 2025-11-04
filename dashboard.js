@@ -250,43 +250,126 @@ async function downloadAllShops() {
   if (typeof saveAs === "undefined") { alert("FileSaver not loaded."); return; }
 
   const overlay = createProgressOverlay();
+  const zip = new JSZip();
+
   try {
     setProgressText("Building CSVs per shop...");
-
-    const zip = new JSZip();
     const shopsList = filteredData;
-    const shopNames = [...new Set(shopsList.map(r => (r["SHOP NAME"]||"").toUpperCase()))].filter(Boolean);
+    const shopNames = [...new Set(shopsList.map(r => (r["SHOP NAME"] || "").trim()))].filter(Boolean);
 
-    let idx=0;
-    for (const shopNormalized of shopNames) {
-      idx++;
-      setProgressText(`Building CSV (${idx}/${shopNames.length})`);
-      document.getElementById("zipProgressCounter").textContent = `${idx} / ${shopNames.length} shops processed`;
+    for (let idx = 0; idx < shopNames.length; idx++) {
+      const shopName = shopNames[idx];
+      setProgressText(`Processing ${shopName} (${idx+1}/${shopNames.length})`);
+      document.getElementById("zipProgressCounter").textContent = `${idx+1} / ${shopNames.length} shops processed`;
 
-      const shopRow = shopsList.find(r => (r["SHOP NAME"]||"").toUpperCase() === shopNormalized) || {};
-      const csvRows = [HEADERS];
-      const row = HEADERS.map(h => shopRow[h] || 0);
-      csvRows.push(row);
+      // --------------------------
+      // Fetch full daily transaction data for this shop
+      // --------------------------
+      const [depositData, withdrawalData, stlmData, commData, shopBalanceData] = await Promise.all([
+        fetch(`${OPENSHEET_BASE}/TOTAL%20DEPOSIT`).then(r=>r.json()),
+        fetch(`${OPENSHEET_BASE}/TOTAL%20WITHDRAWAL`).then(r=>r.json()),
+        fetch(`${OPENSHEET_BASE}/STLM%2FTOPUP`).then(r=>r.json()),
+        fetch(`${OPENSHEET_BASE}/COMM`).then(r=>r.json()),
+        fetch(`${OPENSHEET_BASE}/SHOPS%20BALANCE`).then(r=>r.json()),
+      ]);
 
-      const csvText = csvRows.map(row => row.map(cell => `"${String(cell ?? "").replace(/"/g,'""')}"`).join(",")).join("\n");
-      const safeName = (shopNormalized||"UNKNOWN").replace(/[\\\/:*?"<>|]/g,"_");
-      zip.file(`${safeName}.csv`, csvText);
+      // Normalize strings
+      const normalizedShop = shopName.trim().toUpperCase();
+
+      const shopRow = shopBalanceData.find(r => (r["SHOP"]||"").trim().toUpperCase() === normalizedShop) || {};
+      const bringForwardBalance = parseNumber(shopRow["BRING FORWARD BALANCE"]);
+      const securityDeposit = parseNumber(shopRow["SECURITY DEPOSIT"]);
+      const teamLeader = shopRow["TEAM LEADER"] || "-";
+
+      const shopCommRow = commData.find(r => (r.SHOP||"").trim().toUpperCase()===normalizedShop) || {};
+      const dpCommRate = parseNumber(shopCommRow["DP COMM"]);
+      const wdCommRate = parseNumber(shopCommRow["WD COMM"]);
+      const addCommRate = parseNumber(shopCommRow["ADD COMM"]);
+
+      // Get all unique dates for this shop
+      const datesSet = new Set([
+        ...depositData.filter(r => (r.SHOP||"").trim().toUpperCase() === normalizedShop).map(r=>r.DATE),
+        ...withdrawalData.filter(r => (r.SHOP||"").trim().toUpperCase() === normalizedShop).map(r=>r.DATE),
+        ...stlmData.filter(r => (r.SHOP||"").trim().toUpperCase() === normalizedShop).map(r=>r.DATE),
+      ]);
+      const sortedDates = Array.from(datesSet).filter(Boolean).sort((a,b)=>new Date(a)-new Date(b));
+
+      // --------------------------
+      // Build CSV rows
+      // --------------------------
+      const csv = [];
+      csv.push(shopName);
+      csv.push(`Shop Name: ${shopName}`);
+      csv.push(`Security Deposit: ${securityDeposit}`);
+      csv.push(`Bring Forward Balance: ${bringForwardBalance}`);
+      csv.push(`Team Leader: ${teamLeader}`);
+      csv.push(""); // empty line
+      csv.push(['DATE','DEPOSIT','WITHDRAWAL','IN','OUT','SETTLEMENT','SPECIAL PAYMENT','ADJUSTMENT','SEC DEPOSIT','DP COMM','WD COMM','ADD COMM','BALANCE'].join(','));
+
+      let runningBalance = bringForwardBalance;
+
+      // Add B/F row
+      csv.push([
+        'B/F Balance','0','0','0','0','0','0','0',securityDeposit,'0','0','0',runningBalance
+      ].join(','));
+
+      for (const date of sortedDates) {
+        const deposits = depositData.filter(r => (r.SHOP||"").trim().toUpperCase()===normalizedShop && r.DATE===date);
+        const withdrawals = withdrawalData.filter(r => (r.SHOP||"").trim().toUpperCase()===normalizedShop && r.DATE===date);
+        const stlmForDate = stlmData.filter(r => (r.SHOP||"").trim().toUpperCase()===normalizedShop && r.DATE===date);
+
+        const depTotalRow = deposits.reduce((s,r)=>s+parseNumber(r.AMOUNT),0);
+        const wdTotalRow = withdrawals.reduce((s,r)=>s+parseNumber(r.AMOUNT),0);
+
+        const sumMode = mode => stlmForDate.filter(r => (r.MODE||"").trim().toUpperCase()===mode.toUpperCase()).reduce((s,r)=>s+parseNumber(r.AMOUNT),0);
+        const inAmtRow = sumMode("IN");
+        const outAmtRow = sumMode("OUT");
+        const settlementRow = sumMode("SETTLEMENT");
+        const specialPayRow = sumMode("SPECIAL PAYMENT");
+        const adjustmentRow = sumMode("ADJUSTMENT");
+        const secDepRow = sumMode("SECURITY DEPOSIT");
+
+        const dpCommRow = depTotalRow * dpCommRate/100;
+        const wdCommRow = wdTotalRow * wdCommRate/100;
+        const addCommRow = depTotalRow * addCommRate/100;
+
+        runningBalance += depTotalRow - wdTotalRow + inAmtRow - outAmtRow - settlementRow - specialPayRow
+          + adjustmentRow - dpCommRow - wdCommRow - addCommRow;
+
+        csv.push([
+          date,
+          depTotalRow, wdTotalRow,
+          inAmtRow, outAmtRow, settlementRow, specialPayRow, adjustmentRow,
+          secDepRow, dpCommRow, wdCommRow, addCommRow,
+          runningBalance
+        ].join(','));
+      }
+
+      // Totals row
+      const totals = {
+        dep: depositData.filter(r => (r.SHOP||"").trim().toUpperCase()===normalizedShop).reduce((s,r)=>s+parseNumber(r.AMOUNT),0),
+        wd: withdrawalData.filter(r => (r.SHOP||"").trim().toUpperCase()===normalizedShop).reduce((s,r)=>s+parseNumber(r.AMOUNT),0),
+      };
+      csv.push([
+        'TOTAL', totals.dep, totals.wd, '', '', '', '', '', '', '', '', '', runningBalance
+      ].join(','));
+
+      const safeName = shopName.replace(/[\\\/:*?"<>|]/g,"_");
+      zip.file(`${safeName}.csv`, csv.join("\n"));
     }
 
     setProgressText("Generating ZIP file...");
-    document.getElementById("zipProgressCounter").textContent = "";
-
     const blob = await zip.generateAsync({ type: "blob" });
     saveAs(blob, `Shop_Summaries_${new Date().toISOString().slice(0,10)}.zip`);
     removeProgressOverlay();
     alert("ZIP download started.");
+
   } catch(err){
     console.error(err);
     removeProgressOverlay();
     alert("ZIP generation failed: "+(err.message||err));
   }
 }
-
 /* -------------------------
    Progress overlay helpers
 ------------------------- */
