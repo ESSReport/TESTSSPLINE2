@@ -242,16 +242,15 @@ function exportCSV() {
   });
   const blob = new Blob([rows.join("\n")], {type:"text/csv;charset=utf-8"});
   if (typeof saveAs !== "function") { alert("Download failed: FileSaver.js not loaded."); return; }
-  saveAs(blob, `Shops_Summary_${new Date().
-toISOString().slice(0,10)}.csv`);
+  saveAs(blob, `Shops_Summary_${new Date().toISOString().slice(0,10)}.csv`);
 }
 
 /* -------------------------
-   ZIP Download (per-shop CSVs) - updated to show correct DP/WD/ADD COMM per row
+   ZIP Download (per-shop CSVs) - updated with correct commissions
    ------------------------- */
 async function downloadAllShops() {
   if (typeof JSZip === "undefined") { alert("JSZip not loaded."); return; }
-  if (typeof saveAs === "undefined") { alert("FileSaver.js not loaded."); return; }
+  if (typeof saveAs === "undefined") { alert("FileSaver (saveAs) not loaded."); return; }
 
   const overlay = createProgressOverlay();
   try {
@@ -296,13 +295,11 @@ async function downloadAllShops() {
       const securityDeposit = parseNumber(shopRow["SECURITY DEPOSIT"]);
       const bringForwardBalance = parseNumber(shopRow["BRING FORWARD BALANCE"] || 0);
 
-      // get commission RATES from COMM tab (percent)
       const commRow = commData.find(c => ((c["SHOP"]||c["SHOP NAME"]||"").toUpperCase() === shopNormalized)) || {};
       const dpCommRate = parseNumber(commRow["DP COMM"] || 0);
       const wdCommRate = parseNumber(commRow["WD COMM"] || 0);
       const addCommRate = parseNumber(commRow["ADD COMM"] || 0);
 
-      // gather dates
       const dateSet = new Set([
         ...(depositsNorm||[]).filter(r => (r["SHOP"]||"").toUpperCase() === shopNormalized).map(r => r["DATE"]),
         ...(withdrawalsNorm||[]).filter(r => (r["SHOP"]||"").toUpperCase() === shopNormalized).map(r => r["DATE"]),
@@ -310,7 +307,6 @@ async function downloadAllShops() {
       ]);
       const sortedDates = Array.from(dateSet).filter(Boolean).sort((a,b)=> new Date(a) - new Date(b));
 
-      // CSV header rows
       const csvRows = [
         [shopNormalized],
         [`Shop Name: ${shopNormalized}`],
@@ -321,10 +317,7 @@ async function downloadAllShops() {
         ["DATE","DEPOSIT","WITHDRAWAL","IN","OUT","SETTLEMENT","SPECIAL PAYMENT","ADJUSTMENT","SEC DEPOSIT","DP COMM","WD COMM","ADD COMM","BALANCE"]
       ];
 
-      // running balance starts with bring forward
       let runningBalance = bringForwardBalance;
-
-      // push B/F row
       csvRows.push(["B/F Balance","0.00","0.00","0.00","0.00","0.00","0.00","0.00",securityDeposit.toFixed(2),"0.00","0.00","0.00",runningBalance.toFixed(2)]);
 
       const sumRows = (arr, date, shop, key, mode=null) => {
@@ -344,7 +337,6 @@ async function downloadAllShops() {
         const adjustment = sumRows(stlmNorm, date, shopNormalized, "AMOUNT", "ADJUSTMENT");
         const secDepRow = sumRows(stlmNorm, date, shopNormalized, "AMOUNT", "SECURITY DEPOSIT");
 
-        // compute commissions per row
         const dpComm = depTotal * (dpCommRate / 100);
         const wdComm = wdTotal * (wdCommRate / 100);
         const addComm = depTotal * (addCommRate / 100);
@@ -353,7 +345,6 @@ async function downloadAllShops() {
         totalWdComm += wdComm;
         totalAddComm += addComm;
 
-        // apply to running balance
         runningBalance += depTotal - wdTotal + inAmt - outAmt - settlement - specialPayment + adjustment - dpComm - wdComm - addComm;
 
         csvRows.push([
@@ -373,11 +364,10 @@ async function downloadAllShops() {
         ]);
       }
 
-      // push TOTAL row
       const totals = {deposit:0,withdrawal:0,in:0,out:0,settlement:0,specialPayment:0,adjustment:0,secDep:0};
       for (const row of csvRows) {
         if (!row || row.length < 13) continue;
-        if (row[0]==="DATE"||row[0]==="B/F Balance"||row[0]==="TOTAL") continue;
+        if (row[0] === "DATE" || row[0] === "B/F Balance" || row[0] === "TOTAL") continue;
         totals.deposit += parseNumber(row[1]);
         totals.withdrawal += parseNumber(row[2]);
         totals.in += parseNumber(row[3]);
@@ -404,7 +394,6 @@ async function downloadAllShops() {
         runningBalance.toFixed(2)
       ]);
 
-      // save CSV
       const csvText = csvRows.map(row => row.map(cell => `"${String(cell ?? "").replace(/"/g,'""')}"`).join(",")).join("\n");
       const safeName = (shopNormalized||"UNKNOWN").replace(/[\\\/:*?"<>|]/g,"_");
       zip.file(`${safeName}.csv`, csvText);
@@ -412,6 +401,7 @@ async function downloadAllShops() {
 
     setProgressText("Generating ZIP file...");
     document.getElementById("zipProgressCounter").textContent = "";
+
     const blob = await zip.generateAsync({ type: "blob" });
     saveAs(blob, `Shop_Daily_Summaries_${new Date().toISOString().slice(0,10)}.zip`);
     removeProgressOverlay();
@@ -419,7 +409,7 @@ async function downloadAllShops() {
   } catch (err) {
     console.error("ZIP creation error:", err);
     removeProgressOverlay();
-    alert("ZIP generation failed: " + (err.message || err));
+    alert("ZIP generation failed: " + (err && err.message ? err.message : err));
   }
 }
 
@@ -480,9 +470,9 @@ document.addEventListener("DOMContentLoaded", async () => {
         filterData();
       }
     }
+
   } catch (err) {
     console.error("Init error:", err);
-    alert("Failed to load dashboard: " + (err.message || err));
+    alert("Failed to load dashboard: " + (err && err.message ? err.message : err));
   }
 });
-
