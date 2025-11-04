@@ -246,7 +246,7 @@ function exportCSV() {
 }
 
 /* -------------------------
-   ZIP Download (per-shop CSVs) with correct commissions
+   ZIP Download (per-shop daily summaries)
    ------------------------- */
 async function downloadAllShops() {
   if (typeof JSZip === "undefined") { alert("JSZip not loaded."); return; }
