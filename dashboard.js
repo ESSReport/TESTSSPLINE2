@@ -295,10 +295,19 @@ async function downloadAllShops() {
       const securityDeposit = parseNumber(shopRow["SECURITY DEPOSIT"]);
       const bringForwardBalance = parseNumber(shopRow["BRING FORWARD BALANCE"] || shopRow["BRING FORWARD BALANCE "] || 0);
 
-      const shopCommRow = commNorm.find(r => (r["SHOP"]||"").toUpperCase() === shopNormalized) || {};
-      const dpCommRate = parseNumber(shopCommRow["DP COMM"]);
-      const wdCommRate = parseNumber(shopCommRow["WD COMM"]);
-      const addCommRate = parseNumber(shopCommRow["ADD COMM"]);
+      const shopCommRow = commNorm.find(r => 
+  ((r["SHOP"] || r["SHOP NAME"] || "").toUpperCase() === shopNormalized)
+) || {};
+
+const dpCommRate = parseNumber(
+  shopCommRow["DP COMM"] || shopCommRow["DP COMMISSION"] || shopCommRow["DP COM"]
+);
+const wdCommRate = parseNumber(
+  shopCommRow["WD COMM"] || shopCommRow["WITHDRAW COMM"] || shopCommRow["WD COM"]
+);
+const addCommRate = parseNumber(
+  shopCommRow["ADD COMM"] || shopCommRow["ADDITIONAL COMM"] || shopCommRow["ADD COM"]
+);
 
       // find dates
       const dateSet = new Set([
