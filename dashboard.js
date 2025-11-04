@@ -279,17 +279,16 @@ async function downloadAllShops() {
       document.getElementById("zipProgressCounter").textContent = `${idx+1} / ${shopNames.length} shops processed`;
 
       // --------------------------
-      // Fetch full daily transaction data for this shop
+      // Fetch all sheets
       // --------------------------
       const [depositData, withdrawalData, stlmData, commData, shopBalanceData] = await Promise.all([
-        fetch(`${OPENSHEET_BASE}/TOTAL%20DEPOSIT`).then(r=>r.json()),
-        fetch(`${OPENSHEET_BASE}/TOTAL%20WITHDRAWAL`).then(r=>r.json()),
-        fetch(`${OPENSHEET_BASE}/STLM%2FTOPUP`).then(r=>r.json()),
-        fetch(`${OPENSHEET_BASE}/COMM`).then(r=>r.json()),
-        fetch(`${OPENSHEET_BASE}/SHOPS%20BALANCE`).then(r=>r.json()),
+        fetch(`${OPENSHEET_BASE}/TOTAL%20DEPOSIT`).then(r => r.json()),
+        fetch(`${OPENSHEET_BASE}/TOTAL%20WITHDRAWAL`).then(r => r.json()),
+        fetch(`${OPENSHEET_BASE}/STLM%2FTOPUP`).then(r => r.json()),
+        fetch(`${OPENSHEET_BASE}/COMM`).then(r => r.json()),
+        fetch(`${OPENSHEET_BASE}/SHOPS%20BALANCE`).then(r => r.json()),
       ]);
 
-      // Normalize strings
       const normalizedShop = shopName.trim().toUpperCase();
 
       const shopRow = shopBalanceData.find(r => (r["SHOP"]||"").trim().toUpperCase() === normalizedShop) || {};
@@ -297,21 +296,23 @@ async function downloadAllShops() {
       const securityDeposit = parseNumber(shopRow["SECURITY DEPOSIT"]);
       const teamLeader = shopRow["TEAM LEADER"] || "-";
 
-      const shopCommRow = commData.find(r => (r.SHOP||"").trim().toUpperCase()===normalizedShop) || {};
+      const shopCommRow = commData.find(r => (r.SHOP||"").trim().toUpperCase() === normalizedShop) || {};
       const dpCommRate = parseNumber(shopCommRow["DP COMM"]);
       const wdCommRate = parseNumber(shopCommRow["WD COMM"]);
       const addCommRate = parseNumber(shopCommRow["ADD COMM"]);
 
-      // Get all unique dates for this shop
+      // --------------------------
+      // Unique dates
+      // --------------------------
       const datesSet = new Set([
-        ...depositData.filter(r => (r.SHOP||"").trim().toUpperCase() === normalizedShop).map(r=>r.DATE),
-        ...withdrawalData.filter(r => (r.SHOP||"").trim().toUpperCase() === normalizedShop).map(r=>r.DATE),
-        ...stlmData.filter(r => (r.SHOP||"").trim().toUpperCase() === normalizedShop).map(r=>r.DATE),
+        ...depositData.filter(r => (r.SHOP||"").trim().toUpperCase() === normalizedShop).map(r => r.DATE),
+        ...withdrawalData.filter(r => (r.SHOP||"").trim().toUpperCase() === normalizedShop).map(r => r.DATE),
+        ...stlmData.filter(r => (r.SHOP||"").trim().toUpperCase() === normalizedShop).map(r => r.DATE),
       ]);
       const sortedDates = Array.from(datesSet).filter(Boolean).sort((a,b)=>new Date(a)-new Date(b));
 
       // --------------------------
-      // Build CSV rows
+      // CSV generation
       // --------------------------
       const csv = [];
       csv.push(shopName);
@@ -329,6 +330,7 @@ async function downloadAllShops() {
         'B/F Balance','0','0','0','0','0','0','0',securityDeposit,'0','0','0',runningBalance
       ].join(','));
 
+      // Loop through dates
       for (const date of sortedDates) {
         const deposits = depositData.filter(r => (r.SHOP||"").trim().toUpperCase()===normalizedShop && r.DATE===date);
         const withdrawals = withdrawalData.filter(r => (r.SHOP||"").trim().toUpperCase()===normalizedShop && r.DATE===date);
@@ -345,12 +347,12 @@ async function downloadAllShops() {
         const adjustmentRow = sumMode("ADJUSTMENT");
         const secDepRow = sumMode("SECURITY DEPOSIT");
 
-        const dpCommRow = depTotalRow * dpCommRate/100;
-        const wdCommRow = wdTotalRow * wdCommRate/100;
-        const addCommRow = depTotalRow * addCommRate/100;
+        const dpCommRow = depTotalRow * dpCommRate / 100;
+        const wdCommRow = wdTotalRow * wdCommRate / 100;
+        const addCommRow = depTotalRow * addCommRate / 100;
 
         runningBalance += depTotalRow - wdTotalRow + inAmtRow - outAmtRow - settlementRow - specialPayRow
-          + adjustmentRow - dpCommRow - wdCommRow - addCommRow;
+                          + adjustmentRow - dpCommRow - wdCommRow - addCommRow;
 
         csv.push([
           date,
@@ -367,7 +369,7 @@ async function downloadAllShops() {
         wd: withdrawalData.filter(r => (r.SHOP||"").trim().toUpperCase()===normalizedShop).reduce((s,r)=>s+parseNumber(r.AMOUNT),0),
       };
       csv.push([
-        'TOTAL', totals.dep, totals.wd, '', '', '', '', '', '', '', '', '', runningBalance
+        'TOTAL', totals.dep, totals.wd,'','','','','',secDepRow,dpCommRate,wdCommRate,addCommRate,runningBalance
       ].join(','));
 
       const safeName = shopName.replace(/[\\\/:*?"<>|]/g,"_");
@@ -386,7 +388,6 @@ async function downloadAllShops() {
     alert("ZIP generation failed: "+(err.message||err));
   }
 }
-
 /* -------------------------
    Progress overlay helpers
 ------------------------- */
