@@ -75,7 +75,7 @@ async function loadData() {
     document.getElementById("infoTeamLeader").textContent = teamLeader;
 
     // ------------------------------
-    // Commission Rates (from COMM sheet)
+    // Commission Rates
     // ------------------------------
     const shopCommRow = commData.find(r => normalizeString(r.SHOP) === normalizedShop);
     const dpCommRate = parseNumber(shopCommRow?.["DP COMM"]);
@@ -83,7 +83,7 @@ async function loadData() {
     const addCommRate = parseNumber(shopCommRow?.["ADD COMM"]);
 
     // ------------------------------
-    // Unique dates across sheets for this shop
+    // Unique dates
     // ------------------------------
     const datesSet = new Set([
       ...depositData.filter(r => normalizeString(r.SHOP) === normalizedShop).map(r => r.DATE),
@@ -202,8 +202,7 @@ async function loadData() {
     // ------------------------------
     // Attach View Daily Transactions redirect
     // ------------------------------
-    const btn = document.getElementById("viewDailyBtn");
-    btn.addEventListener("click", () => {
+    document.getElementById("viewDailyBtn").addEventListener("click", () => {
       const shop = document.getElementById("infoShopName").textContent;
       if (!shop || shop === "-") {
         alert("Shop name not available yet. Please wait for data to load.");
@@ -219,6 +218,60 @@ async function loadData() {
 
   loadingSpinner.style.display = "none";
 }
+
+// ------------------------------
+// CSV Download with Shop Header
+// ------------------------------
+function downloadTableAsCSV(filename = 'daily_transactions.csv') {
+  const rows = document.querySelectorAll('#transactionTable tbody tr, #transactionTable tfoot tr');
+  const csv = [];
+
+  // Shop header info
+  const shopNameText = document.getElementById("infoShopName").textContent;
+  const secDepositText = document.getElementById("infoSecDeposit").textContent;
+  const bfBalanceText = document.getElementById("infoBFBalance").textContent;
+  const teamLeaderText = document.getElementById("infoTeamLeader").textContent;
+
+  csv.push(shopNameText);
+  csv.push(`Shop Name: ${shopNameText}`);
+  csv.push(`Security Deposit: ${secDepositText}`);
+  csv.push(`Bring Forward Balance: ${bfBalanceText}`);
+  csv.push(`Team Leader: ${teamLeaderText}`);
+
+  // Table header
+  const headerCols = document.querySelectorAll('#transactionTable thead th');
+  const headerRow = Array.from(headerCols).map(th => `"${th.textContent.replace(/"/g,'""')}"`).join(',');
+  csv.push(headerRow);
+
+  // Transaction rows + totals
+  rows.forEach(row => {
+    const cols = row.querySelectorAll('td, th');
+    const rowData = [];
+    cols.forEach(col => {
+      let data = col.textContent.replace(/"/g, '""');
+      rowData.push(`"${data}"`);
+    });
+    csv.push(rowData.join(','));
+  });
+
+  // Download CSV
+  const csvString = csv.join('\n');
+  const blob = new Blob([csvString], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// Attach CSV download event
+document.getElementById('downloadCsvBtn').addEventListener('click', () => {
+  downloadTableAsCSV(`${shopName || 'daily_transactions'}.csv`);
+});
 
 // ------------------------------
 // Initialize
