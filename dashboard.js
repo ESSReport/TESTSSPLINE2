@@ -246,7 +246,7 @@ function exportCSV() {
 }
 
 /* -------------------------
-   ZIP Download (per-shop CSVs) - updated with correct commissions
+   ZIP Download (per-shop CSVs) with correct commissions
    ------------------------- */
 async function downloadAllShops() {
   if (typeof JSZip === "undefined") { alert("JSZip not loaded."); return; }
@@ -318,6 +318,7 @@ async function downloadAllShops() {
       ];
 
       let runningBalance = bringForwardBalance;
+
       csvRows.push(["B/F Balance","0.00","0.00","0.00","0.00","0.00","0.00","0.00",securityDeposit.toFixed(2),"0.00","0.00","0.00",runningBalance.toFixed(2)]);
 
       const sumRows = (arr, date, shop, key, mode=null) => {
@@ -337,9 +338,9 @@ async function downloadAllShops() {
         const adjustment = sumRows(stlmNorm, date, shopNormalized, "AMOUNT", "ADJUSTMENT");
         const secDepRow = sumRows(stlmNorm, date, shopNormalized, "AMOUNT", "SECURITY DEPOSIT");
 
-        const dpComm = depTotal * (dpCommRate / 100);
-        const wdComm = wdTotal * (wdCommRate / 100);
-        const addComm = depTotal * (addCommRate / 100);
+        const dpComm = dpCommRate ? depTotal * (dpCommRate / 100) : 0;
+        const wdComm = wdCommRate ? wdTotal * (wdCommRate / 100) : 0;
+        const addComm = addCommRate ? depTotal * (addCommRate / 100) : 0;
 
         totalDpComm += dpComm;
         totalWdComm += wdComm;
