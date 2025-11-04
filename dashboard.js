@@ -1,4 +1,5 @@
-// dashboard.js - full updated working file (COMM rates fix integrated)
+// dashboard.js - Final (COMM rates, commission totals only in CSV bottom, safe listeners)
+
 /* -------------------------
    Configuration / Helpers
    ------------------------- */
@@ -9,7 +10,7 @@ const OPENSHEET = {
   DEPOSIT: `${OPENSHEET_BASE}/TOTAL%20DEPOSIT`,
   WITHDRAWAL: `${OPENSHEET_BASE}/TOTAL%20WITHDRAWAL`,
   STLM: `${OPENSHEET_BASE}/STLM%2FTOPUP`,
-  COMM: `${OPENSHEET_BASE}/COMM` // <-- COMM tab added back
+  COMM: `${OPENSHEET_BASE}/COMM`
 };
 
 const HEADERS = [
@@ -97,9 +98,7 @@ function buildSummary(data){
     const shop = (r["SHOP"]||r["SHOP NAME"]||"").trim();
     if(!shop) return;
     if(!summary[shop]) {
-      summary[shop] = Object.assign({}, ...HEADERS.map(h=> ({
-        [h]: (h==="SHOP NAME"? shop : (h==="TEAM LEADER"? ((r["TEAM LEADER"]||"").trim().toUpperCase()) : (h==="GROUP NAME"? ((r["GROUP NAME"]||"").trim().toUpperCase()) : 0) ) )
-      })));
+      summary[shop] = Object.assign({}, ...HEADERS.map(h=> ({ [h]: (h==="SHOP NAME"? shop : (h==="TEAM LEADER"? ((r["TEAM LEADER"]||"").trim().toUpperCase()) : (h==="GROUP NAME"? ((r["GROUP NAME"]||"").trim().toUpperCase()) : 0) ) ) })));
     }
     ["SECURITY DEPOSIT","BRING FORWARD BALANCE","TOTAL DEPOSIT","TOTAL WITHDRAWAL","INTERNAL TRANSFER IN","INTERNAL TRANSAFER OUT","SETTLEMENT","SPECIAL PAYMENT","ADJUSTMENT","DP COMM","WD COMM","ADD COMM"].forEach(key=>{
       summary[shop][key] = (summary[shop][key] || 0) + parseNumber(r[key]);
@@ -126,10 +125,11 @@ function buildSummary(data){
 function renderTable(){
   const tableHead = document.getElementById("tableHeader");
   const tableBody = document.getElementById("tableBody");
-  tableHead.innerHTML = ""; tableBody.innerHTML = "";
+  if (tableHead) tableHead.innerHTML = "";
+  if (tableBody) tableBody.innerHTML = "";
 
   HEADERS.forEach(h=>{
-    const th=document.createElement("th"); th.textContent=h; tableHead.appendChild(th);
+    const th=document.createElement("th"); th.textContent=h; if (tableHead) tableHead.appendChild(th);
   });
 
   const start = (currentPage-1)*rowsPerPage;
@@ -154,7 +154,7 @@ function renderTable(){
       }
       tr.appendChild(td);
     });
-    tableBody.appendChild(tr);
+    if (tableBody) tableBody.appendChild(tr);
   });
 
   updatePagination();
@@ -164,6 +164,7 @@ function renderTable(){
 
 function renderTotals(){
   const totalsDiv = document.getElementById("totalsRow");
+  if (!totalsDiv) return;
   totalsDiv.innerHTML = "";
   HEADERS.forEach(h=>{
     if(["SHOP NAME","TEAM LEADER","GROUP NAME"].includes(h)) return;
@@ -176,10 +177,13 @@ function renderTotals(){
 }
 
 function updatePagination(){
+  const pageInfo = document.getElementById("pageInfo");
+  const prevBtn = document.getElementById("prevPage");
+  const nextBtn = document.getElementById("nextPage");
   const totalPages = Math.ceil(filteredData.length/rowsPerPage) || 1;
-  document.getElementById("pageInfo").textContent = `Page ${currentPage} of ${totalPages}`;
-  document.getElementById("prevPage").disabled = currentPage===1;
-  document.getElementById("nextPage").disabled = currentPage===totalPages;
+  if (pageInfo) pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
+  if (prevBtn) prevBtn.disabled = currentPage===1;
+  if (nextBtn) nextBtn.disabled = currentPage===totalPages;
 }
 
 function updateTeamDashboardLink(){
@@ -240,44 +244,42 @@ function exportCSV() {
     rows.push(row);
   });
   const blob = new Blob([rows.join("\n")], {type:"text/csv;charset=utf-8"});
-  if (typeof saveAs !== "function") {
-    alert("Download failed: FileSaver.js not loaded.");
-    return;
-  }
+  if (typeof saveAs !== "function") { alert("Download failed: FileSaver.js not loaded."); return; }
   saveAs(blob, `Shops_Summary_${new Date().toISOString().slice(0,10)}.csv`);
 }
 
 /* -------------------------
    ZIP Download (per-shop CSVs) - uses COMM tab rates
+   - commissions applied to balance, but per-row columns left blank
+   - totals for DP COMM / WD COMM / ADD COMM appear only in the TOTAL row
    ------------------------- */
 async function downloadAllShops() {
-  console.log("downloadAllShops triggered");
   if (typeof JSZip === "undefined") { alert("JSZip not loaded. Include JSZip before this script."); return; }
   if (typeof saveAs === "undefined") { alert("FileSaver (saveAs) not loaded. Include FileSaver.js before this script."); return; }
 
   const overlay = createProgressOverlay();
   try {
     setProgressText("Fetching sheets...");
-    const [depositsRes, withdrawalsRes, stlmRes, commRes, shopBalanceRes] = await Promise.all([
+    const [depositsRes, withdrawalsRes, stlmRes, shopBalanceRes, commRes] = await Promise.all([
       fetch(OPENSHEET.DEPOSIT),
       fetch(OPENSHEET.WITHDRAWAL),
       fetch(OPENSHEET.STLM),
-      fetch(OPENSHEET.COMM),             // <-- fetch COMM tab
-      fetch(OPENSHEET.SHOPS_BALANCE)
+      fetch(OPENSHEET.SHOPS_BALANCE),
+      fetch(OPENSHEET.COMM)
     ]);
 
     const deposits = depositsRes.ok ? await depositsRes.json() : [];
     const withdrawals = withdrawalsRes.ok ? await withdrawalsRes.json() : [];
     const stlm = stlmRes.ok ? await stlmRes.json() : [];
-    const comm = commRes.ok ? await commRes.json() : [];
     const shopBalanceRaw = shopBalanceRes.ok ? await shopBalanceRes.json() : [];
+    const commRaw = commRes.ok ? await commRes.json() : [];
 
     const normalizeKeys = obj => { const o={}; for(const k in obj) o[cleanKey(k)] = obj[k]; return o; };
-    const shopBalance = (shopBalanceRaw||[]).map(normalizeKeys);
     const depositsNorm = (deposits||[]).map(normalizeKeys);
     const withdrawalsNorm = (withdrawals||[]).map(normalizeKeys);
     const stlmNorm = (stlm||[]).map(normalizeKeys);
-    const commNorm = (comm||[]).map(normalizeKeys); // normalized COMM rows
+    const shopBalance = (shopBalanceRaw||[]).map(normalizeKeys);
+    const commData = (commRaw||[]).map(normalizeKeys);
 
     setProgressText("Building CSVs per shop...");
     const selectedLeader = document.getElementById("leaderFilter")?.value?.trim().toUpperCase() || "ALL";
@@ -290,7 +292,7 @@ async function downloadAllShops() {
 
     for (const shopNormalized of shopNames) {
       idx++;
-      setProgressText(`Building CSVs (${idx} / ${shopNames.length})`);
+      setProgressText(`Building CSV (${idx}/${shopNames.length})`);
       document.getElementById("zipProgressCounter").textContent = `${idx} / ${shopNames.length} shops processed`;
 
       const shopRow = shopBalance.find(r => (r["SHOP"]||"").toUpperCase() === shopNormalized) || {};
@@ -298,16 +300,13 @@ async function downloadAllShops() {
       const securityDeposit = parseNumber(shopRow["SECURITY DEPOSIT"]);
       const bringForwardBalance = parseNumber(shopRow["BRING FORWARD BALANCE"] || 0);
 
-      // Find COMM row for this shop (commNorm uses normalized keys)
-      const shopCommRow = commNorm.find(r => ((r["SHOP"]||r["SHOP NAME"]||"").toUpperCase() === shopNormalized)) || {};
-      // Try a few possible key names just in case
-      const dpCommRate = parseNumber(shopCommRow["DP COMM"] || shopCommRow["DEPOSIT COMM"] || shopCommRow["DEPOSIT COMM RATE"] || 0);
-      const wdCommRate = parseNumber(shopCommRow["WD COMM"] || shopCommRow["WITHDRAWAL COMM"] || shopCommRow["WITHDRAW COMM"] || 0);
-      const addCommRate = parseNumber(shopCommRow["ADD COMM"] || shopCommRow["ADDITIONAL COMM"] || shopCommRow["ADD COMMISSION"] || 0);
+      // get commission RATES from COMM tab (percent)
+      const commRow = commData.find(c => ((c["SHOP"]||c["SHOP NAME"]||"").toUpperCase() === shopNormalized)) || {};
+      const dpCommRate = parseNumber(commRow["DP COMM"] || 0);
+      const wdCommRate = parseNumber(commRow["WD COMM"] || 0);
+      const addCommRate = parseNumber(commRow["ADD COMM"] || 0);
 
-      // debug small log so you can inspect rates in console if needed
-      console.debug(`COMM rates for ${shopNormalized}: dp=${dpCommRate}, wd=${wdCommRate}, add=${addCommRate}`);
-
+      // gather dates
       const dateSet = new Set([
         ...(depositsNorm||[]).filter(r => (r["SHOP"]||"").toUpperCase() === shopNormalized).map(r => r["DATE"]),
         ...(withdrawalsNorm||[]).filter(r => (r["SHOP"]||"").toUpperCase() === shopNormalized).map(r => r["DATE"]),
@@ -315,6 +314,7 @@ async function downloadAllShops() {
       ]);
       const sortedDates = Array.from(dateSet).filter(Boolean).sort((a,b)=> new Date(a) - new Date(b));
 
+      // CSV header rows
       const csvRows = [
         [shopNormalized],
         [`Shop Name: ${shopNormalized}`],
@@ -325,13 +325,20 @@ async function downloadAllShops() {
         ["DATE","DEPOSIT","WITHDRAWAL","IN","OUT","SETTLEMENT","SPECIAL PAYMENT","ADJUSTMENT","SEC DEPOSIT","DP COMM","WD COMM","ADD COMM","BALANCE"]
       ];
 
+      // running balance starts with bring forward
       let runningBalance = bringForwardBalance;
-      csvRows.push(["B/F Balance","0.00","0.00","0.00","0.00","0.00","0.00","0.00",securityDeposit.toFixed(2),"0.00","0.00","0.00",runningBalance.toFixed(2)]);
 
+      // push B/F row (comm columns blank)
+      csvRows.push(["B/F Balance","0.00","0.00","0.00","0.00","0.00","0.00","0.00",securityDeposit.toFixed(2),"","","","",runningBalance.toFixed(2)]);
+
+      // helpers
       const sumRows = (arr, date, shop, key, mode=null) => {
         return (arr||[]).filter(r => ((r["SHOP"]||"").toUpperCase() === shop) && (r["DATE"] === date) && (mode ? ((r["MODE"]||"").toUpperCase() === mode) : true))
                         .reduce((s, rr) => s + parseNumber(rr[key] || rr["AMOUNT"] || 0), 0);
       };
+
+      // accumulate commission totals
+      let totalDpComm = 0, totalWdComm = 0, totalAddComm = 0;
 
       for (const date of sortedDates) {
         const depTotal = sumRows(depositsNorm, date, shopNormalized, "AMOUNT");
@@ -343,13 +350,20 @@ async function downloadAllShops() {
         const adjustment = sumRows(stlmNorm, date, shopNormalized, "AMOUNT", "ADJUSTMENT");
         const secDepRow = sumRows(stlmNorm, date, shopNormalized, "AMOUNT", "SECURITY DEPOSIT");
 
-        // Use COMM rates (percent) from COMM tab: apply /100
+        // compute commissions (rates are percent values in COMM)
         const dpComm = depTotal * (dpCommRate / 100);
         const wdComm = wdTotal * (wdCommRate / 100);
         const addComm = depTotal * (addCommRate / 100);
 
+        // accumulate totals (for bottom TOTAL row)
+        totalDpComm += dpComm;
+        totalWdComm += wdComm;
+        totalAddComm += addComm;
+
+        // apply to running balance (commissions reduce balance)
         runningBalance += depTotal - wdTotal + inAmt - outAmt - settlement - specialPayment + adjustment - dpComm - wdComm - addComm;
 
+        // push row: leave DP/WD/ADD COMM cells blank per your request (totals shown only at bottom)
         csvRows.push([
           date,
           depTotal.toFixed(2),
@@ -360,17 +374,18 @@ async function downloadAllShops() {
           specialPayment.toFixed(2),
           adjustment.toFixed(2),
           secDepRow.toFixed(2),
-          dpComm.toFixed(2),
-          wdComm.toFixed(2),
-          addComm.toFixed(2),
+          "", // DP COMM per-row hidden
+          "", // WD COMM per-row hidden
+          "", // ADD COMM per-row hidden
           runningBalance.toFixed(2)
         ]);
       }
 
-      const totals = {deposit:0,withdrawal:0,in:0,out:0,settlement:0,specialPayment:0,adjustment:0,secDep:0,dpComm:0,wdComm:0,addComm:0};
+      // compute totals for visible columns and commissions
+      const totals = {deposit:0,withdrawal:0,in:0,out:0,settlement:0,specialPayment:0,adjustment:0,secDep:0};
       for (const row of csvRows) {
         if (!row || row.length < 13) continue;
-        if (row[0] === "DATE" || row[0] === "B/F Balance" || row[0] === "TOTAL" || !row[1]) continue;
+        if (row[0] === "DATE" || row[0] === "B/F Balance" || row[0] === "TOTAL") continue;
         totals.deposit += parseNumber(row[1]);
         totals.withdrawal += parseNumber(row[2]);
         totals.in += parseNumber(row[3]);
@@ -379,11 +394,9 @@ async function downloadAllShops() {
         totals.specialPayment += parseNumber(row[6]);
         totals.adjustment += parseNumber(row[7]);
         totals.secDep += parseNumber(row[8]);
-        totals.dpComm += parseNumber(row[9]);
-        totals.wdComm += parseNumber(row[10]);
-        totals.addComm += parseNumber(row[11]);
       }
 
+      // push TOTAL row — include commission totals here (formatted)
       csvRows.push([
         "TOTAL",
         totals.deposit.toFixed(2),
@@ -394,12 +407,13 @@ async function downloadAllShops() {
         totals.specialPayment.toFixed(2),
         totals.adjustment.toFixed(2),
         totals.secDep.toFixed(2),
-        totals.dpComm.toFixed(2),
-        totals.wdComm.toFixed(2),
-        totals.addComm.toFixed(2),
+        totalDpComm.toFixed(2),
+        totalWdComm.toFixed(2),
+        totalAddComm.toFixed(2),
         runningBalance.toFixed(2)
       ]);
 
+      // build csv safe text (quote cells)
       const csvText = csvRows.map(row => row.map(cell => `"${String(cell ?? "").replace(/"/g,'""')}"`).join(",")).join("\n");
       const safeName = (shopNormalized||"UNKNOWN").replace(/[\\\/:*?"<>|]/g,"_");
       zip.file(`${safeName}.csv`, csvText);
@@ -438,53 +452,51 @@ function setProgressText(txt){ const el=document.getElementById("zipProgressText
 function removeProgressOverlay(){ const el=document.getElementById("zipProgressOverlay"); if(el) el.remove(); }
 
 /* -------------------------
-   Init
+   Event binding (safe)
    ------------------------- */
-document.addEventListener("DOMContentLoaded", async ()=>{
+document.addEventListener("DOMContentLoaded", async () => {
   try {
     await showPinModal();
     rawData = await fetchShopsBalance();
+    buildSummary(rawData);
     buildTeamLeaderDropdown(rawData);
     buildGroupDropdown(rawData);
-    buildSummary(rawData);
+    updateTeamDashboardLink();
 
-    // Auto-filter + absolute lock if ?teamLeader present
+    // safe listeners: check multiple possible IDs (covers variations)
+    const listeners = [
+      ["leaderFilter","change", () => { buildGroupDropdown(rawData, document.getElementById("leaderFilter").value); filterData(); }],
+      ["groupFilter","change", filterData],
+      ["searchInput","input", filterData],
+      ["prevPage","click", () => { if (currentPage>1){ currentPage--; renderTable(); } }],
+      ["nextPage","click", () => { if (currentPage < Math.ceil(filteredData.length/rowsPerPage)) { currentPage++; renderTable(); } }],
+      // support both possible HTML IDs for the CSV/ZIP buttons used before
+      ["exportBtn","click", exportCSV],
+      ["downloadAllShopsBtn","click", downloadAllShops],
+      ["downloadCsv","click", exportCSV],
+      ["downloadZip","click", downloadAllShops],
+    ];
+    listeners.forEach(([id,evt,fn])=>{
+      const el=document.getElementById(id);
+      if (el) el.addEventListener(evt,fn);
+      else console.debug(`No element #${id} to attach ${evt}`);
+    });
+
+    // If ?teamLeader param present -> lock filter
     const params = new URLSearchParams(window.location.search);
     const leaderParam = (params.get("teamLeader") || "").toUpperCase();
     if (leaderParam) {
       const leaderSelect = document.getElementById("leaderFilter");
       if (leaderSelect) {
         leaderSelect.value = leaderParam;
-        leaderSelect.disabled = true; // lock filter when URL param present
+        leaderSelect.disabled = true;
         buildGroupDropdown(rawData, leaderParam);
         filterData();
       }
-      const url = new URL(window.location.href);
-      if (url.searchParams.get("teamLeader") !== leaderParam) {
-        url.searchParams.set("teamLeader", leaderParam);
-        window.history.replaceState({}, "", url.href);
-      }
     }
 
-    // wire up UI
-    const leaderFilter = document.getElementById("leaderFilter");
-    const groupFilter = document.getElementById("groupFilter");
-    const searchInput = document.getElementById("searchInput");
-    const prevPage = document.getElementById("prevPage");
-    const nextPage = document.getElementById("nextPage");
-    const exportBtn = document.getElementById("exportBtn");          // matches your HTML
-    const zipBtn = document.getElementById("downloadAllShopsBtn");  // matches your HTML
-
-    if (leaderFilter) leaderFilter.addEventListener("change", e => { buildGroupDropdown(rawData, e.target.value); filterData(); });
-    if (groupFilter) groupFilter.addEventListener("change", filterData);
-    if (searchInput) searchInput.addEventListener("input", filterData);
-    if (prevPage) prevPage.addEventListener("click", ()=>{ if(currentPage>1){ currentPage--; renderTable(); }});
-    if (nextPage) nextPage.addEventListener("click", ()=>{ if(currentPage < Math.ceil(filteredData.length/rowsPerPage)){ currentPage++; renderTable(); }});
-    if (exportBtn) exportBtn.addEventListener("click", exportCSV);
-    if (zipBtn) zipBtn.addEventListener("click", downloadAllShops);
-
-  } catch (e) {
-    console.error("Init error:", e);
-    alert("Access denied or failed to load data.");
+  } catch (err) {
+    console.error("Init error:", err);
+    alert("Failed to load dashboard: " + (err && err.message ? err.message : err));
   }
 });
