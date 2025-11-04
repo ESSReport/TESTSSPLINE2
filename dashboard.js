@@ -1,4 +1,4 @@
-// dashboard.js - full updated working file
+// dashboard.js - full updated working file (COMM rates fix integrated)
 /* -------------------------
    Configuration / Helpers
    ------------------------- */
@@ -8,7 +8,8 @@ const OPENSHEET = {
   SHOPS_BALANCE: `${OPENSHEET_BASE}/SHOPS%20BALANCE`,
   DEPOSIT: `${OPENSHEET_BASE}/TOTAL%20DEPOSIT`,
   WITHDRAWAL: `${OPENSHEET_BASE}/TOTAL%20WITHDRAWAL`,
-  STLM: `${OPENSHEET_BASE}/STLM%2FTOPUP`
+  STLM: `${OPENSHEET_BASE}/STLM%2FTOPUP`,
+  COMM: `${OPENSHEET_BASE}/COMM` // <-- COMM tab added back
 };
 
 const HEADERS = [
@@ -76,7 +77,7 @@ function showPinModal() {
     }
     pinOk.addEventListener("click", ok);
     pinCancel.addEventListener("click", () => { overlay.remove(); reject(new Error("cancelled")); });
-    pinInput.addEventListener("keydown", (e) => { if (e.key === "Enter") ok(); if (e.key === "Escape") { overlay.remove(); reject(new Error("cancelled")); }});
+    pinInput.addEventListener("keydown", (e) => { if (e.key === "Enter") ok(); if (e.key === "Escape") { overlay.remove(); reject(new Error("cancelled")); }} );
   });
 }
 
@@ -95,18 +96,15 @@ function buildSummary(data){
   data.forEach(r=>{
     const shop = (r["SHOP"]||r["SHOP NAME"]||"").trim();
     if(!shop) return;
-    // init summary for this shop
     if(!summary[shop]) {
       summary[shop] = Object.assign({}, ...HEADERS.map(h=> ({
         [h]: (h==="SHOP NAME"? shop : (h==="TEAM LEADER"? ((r["TEAM LEADER"]||"").trim().toUpperCase()) : (h==="GROUP NAME"? ((r["GROUP NAME"]||"").trim().toUpperCase()) : 0) ) )
       })));
     }
-    // accumulate numeric columns (including DP COMM, WD COMM, ADD COMM)
     ["SECURITY DEPOSIT","BRING FORWARD BALANCE","TOTAL DEPOSIT","TOTAL WITHDRAWAL","INTERNAL TRANSFER IN","INTERNAL TRANSAFER OUT","SETTLEMENT","SPECIAL PAYMENT","ADJUSTMENT","DP COMM","WD COMM","ADD COMM"].forEach(key=>{
       summary[shop][key] = (summary[shop][key] || 0) + parseNumber(r[key]);
     });
 
-    // running balance calculation (uses DP/WD/ADD in subtraction)
     summary[shop]["RUNNING BALANCE"] = 
       (summary[shop]["BRING FORWARD BALANCE"]||0) +
       (summary[shop]["TOTAL DEPOSIT"]||0) - (summary[shop]["TOTAL WITHDRAWAL"]||0) +
@@ -185,8 +183,9 @@ function updatePagination(){
 }
 
 function updateTeamDashboardLink(){
-  const leader = document.getElementById("leaderFilter").value;
+  const leader = (document.getElementById("leaderFilter")?.value || "").trim();
   const linkDiv = document.getElementById("teamDashboardLink");
+  if(!linkDiv) return;
   if(leader && leader!=="ALL"){
     const url = `${window.location.origin}${window.location.pathname}?teamLeader=${encodeURIComponent(leader)}`;
     linkDiv.innerHTML = `<a href="${url}" target="_blank" style="color:#0077cc;font-weight:bold;text-decoration:underline">Open ${leader} Dashboard in New Tab</a>`;
@@ -249,7 +248,7 @@ function exportCSV() {
 }
 
 /* -------------------------
-   ZIP Download (per-shop CSVs)
+   ZIP Download (per-shop CSVs) - uses COMM tab rates
    ------------------------- */
 async function downloadAllShops() {
   console.log("downloadAllShops triggered");
@@ -259,17 +258,18 @@ async function downloadAllShops() {
   const overlay = createProgressOverlay();
   try {
     setProgressText("Fetching sheets...");
-    const [depositsRes, withdrawalsRes, stlmRes, shopBalanceRes] = await Promise.all([
+    const [depositsRes, withdrawalsRes, stlmRes, commRes, shopBalanceRes] = await Promise.all([
       fetch(OPENSHEET.DEPOSIT),
       fetch(OPENSHEET.WITHDRAWAL),
       fetch(OPENSHEET.STLM),
+      fetch(OPENSHEET.COMM),             // <-- fetch COMM tab
       fetch(OPENSHEET.SHOPS_BALANCE)
     ]);
 
-    // parse JSON but tolerate non-OK
     const deposits = depositsRes.ok ? await depositsRes.json() : [];
     const withdrawals = withdrawalsRes.ok ? await withdrawalsRes.json() : [];
     const stlm = stlmRes.ok ? await stlmRes.json() : [];
+    const comm = commRes.ok ? await commRes.json() : [];
     const shopBalanceRaw = shopBalanceRes.ok ? await shopBalanceRes.json() : [];
 
     const normalizeKeys = obj => { const o={}; for(const k in obj) o[cleanKey(k)] = obj[k]; return o; };
@@ -277,6 +277,7 @@ async function downloadAllShops() {
     const depositsNorm = (deposits||[]).map(normalizeKeys);
     const withdrawalsNorm = (withdrawals||[]).map(normalizeKeys);
     const stlmNorm = (stlm||[]).map(normalizeKeys);
+    const commNorm = (comm||[]).map(normalizeKeys); // normalized COMM rows
 
     setProgressText("Building CSVs per shop...");
     const selectedLeader = document.getElementById("leaderFilter")?.value?.trim().toUpperCase() || "ALL";
@@ -297,12 +298,16 @@ async function downloadAllShops() {
       const securityDeposit = parseNumber(shopRow["SECURITY DEPOSIT"]);
       const bringForwardBalance = parseNumber(shopRow["BRING FORWARD BALANCE"] || 0);
 
-      // get commission figures from SHOPS BALANCE (these are the figures/percentages stored in the tab)
-      const dpCommRate = parseNumber(shopRow["DP COMM"] || shopRow["DEPOSIT COMM"] || 0);
-      const wdCommRate = parseNumber(shopRow["WD COMM"] || shopRow["WITHDRAWAL COMM"] || 0);
-      const addCommRate = parseNumber(shopRow["ADD COMM"] || shopRow["ADDITIONAL COMM"] || 0);
+      // Find COMM row for this shop (commNorm uses normalized keys)
+      const shopCommRow = commNorm.find(r => ((r["SHOP"]||r["SHOP NAME"]||"").toUpperCase() === shopNormalized)) || {};
+      // Try a few possible key names just in case
+      const dpCommRate = parseNumber(shopCommRow["DP COMM"] || shopCommRow["DEPOSIT COMM"] || shopCommRow["DEPOSIT COMM RATE"] || 0);
+      const wdCommRate = parseNumber(shopCommRow["WD COMM"] || shopCommRow["WITHDRAWAL COMM"] || shopCommRow["WITHDRAW COMM"] || 0);
+      const addCommRate = parseNumber(shopCommRow["ADD COMM"] || shopCommRow["ADDITIONAL COMM"] || shopCommRow["ADD COMMISSION"] || 0);
 
-      // collect all dates where activity exists for this shop
+      // debug small log so you can inspect rates in console if needed
+      console.debug(`COMM rates for ${shopNormalized}: dp=${dpCommRate}, wd=${wdCommRate}, add=${addCommRate}`);
+
       const dateSet = new Set([
         ...(depositsNorm||[]).filter(r => (r["SHOP"]||"").toUpperCase() === shopNormalized).map(r => r["DATE"]),
         ...(withdrawalsNorm||[]).filter(r => (r["SHOP"]||"").toUpperCase() === shopNormalized).map(r => r["DATE"]),
@@ -310,7 +315,6 @@ async function downloadAllShops() {
       ]);
       const sortedDates = Array.from(dateSet).filter(Boolean).sort((a,b)=> new Date(a) - new Date(b));
 
-      // CSV rows (array of arrays)
       const csvRows = [
         [shopNormalized],
         [`Shop Name: ${shopNormalized}`],
@@ -321,7 +325,6 @@ async function downloadAllShops() {
         ["DATE","DEPOSIT","WITHDRAWAL","IN","OUT","SETTLEMENT","SPECIAL PAYMENT","ADJUSTMENT","SEC DEPOSIT","DP COMM","WD COMM","ADD COMM","BALANCE"]
       ];
 
-      // starting running balance is bring forward
       let runningBalance = bringForwardBalance;
       csvRows.push(["B/F Balance","0.00","0.00","0.00","0.00","0.00","0.00","0.00",securityDeposit.toFixed(2),"0.00","0.00","0.00",runningBalance.toFixed(2)]);
 
@@ -330,7 +333,6 @@ async function downloadAllShops() {
                         .reduce((s, rr) => s + parseNumber(rr[key] || rr["AMOUNT"] || 0), 0);
       };
 
-      // per-date rows
       for (const date of sortedDates) {
         const depTotal = sumRows(depositsNorm, date, shopNormalized, "AMOUNT");
         const wdTotal = sumRows(withdrawalsNorm, date, shopNormalized, "AMOUNT");
@@ -341,12 +343,11 @@ async function downloadAllShops() {
         const adjustment = sumRows(stlmNorm, date, shopNormalized, "AMOUNT", "ADJUSTMENT");
         const secDepRow = sumRows(stlmNorm, date, shopNormalized, "AMOUNT", "SECURITY DEPOSIT");
 
-        // commissions are percentage-based (assumed rates as percentages in SHOPS BALANCE)
-        const dpComm = depTotal * dpCommRate / 100;
-        const wdComm = wdTotal * wdCommRate / 100;
-        const addComm = depTotal * addCommRate / 100;
+        // Use COMM rates (percent) from COMM tab: apply /100
+        const dpComm = depTotal * (dpCommRate / 100);
+        const wdComm = wdTotal * (wdCommRate / 100);
+        const addComm = depTotal * (addCommRate / 100);
 
-        // update running balance
         runningBalance += depTotal - wdTotal + inAmt - outAmt - settlement - specialPayment + adjustment - dpComm - wdComm - addComm;
 
         csvRows.push([
@@ -366,7 +367,6 @@ async function downloadAllShops() {
         ]);
       }
 
-      // totals row - sum numeric columns (safe)
       const totals = {deposit:0,withdrawal:0,in:0,out:0,settlement:0,specialPayment:0,adjustment:0,secDep:0,dpComm:0,wdComm:0,addComm:0};
       for (const row of csvRows) {
         if (!row || row.length < 13) continue;
@@ -400,10 +400,7 @@ async function downloadAllShops() {
         runningBalance.toFixed(2)
       ]);
 
-      // convert rows to CSV-safe lines (quote cells)
       const csvText = csvRows.map(row => row.map(cell => `"${String(cell ?? "").replace(/"/g,'""')}"`).join(",")).join("\n");
-
-      // safe filename
       const safeName = (shopNormalized||"UNKNOWN").replace(/[\\\/:*?"<>|]/g,"_");
       zip.file(`${safeName}.csv`, csvText);
     }
@@ -426,7 +423,6 @@ async function downloadAllShops() {
    Progress overlay helpers
    ------------------------- */
 function createProgressOverlay(){
-  // avoid duplicate
   if (document.getElementById("zipProgressOverlay")) return document.getElementById("zipProgressOverlay");
   const overlay = document.createElement("div");
   overlay.id = "zipProgressOverlay";
@@ -463,7 +459,6 @@ document.addEventListener("DOMContentLoaded", async ()=>{
         buildGroupDropdown(rawData, leaderParam);
         filterData();
       }
-      // persist exact param value (no formatting)
       const url = new URL(window.location.href);
       if (url.searchParams.get("teamLeader") !== leaderParam) {
         url.searchParams.set("teamLeader", leaderParam);
