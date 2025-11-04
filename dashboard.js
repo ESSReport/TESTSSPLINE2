@@ -1,5 +1,4 @@
-// dashboard.js (final) - unified IDs, robust downloads, totals, leader filtering + redirect links + absolute leader filter
-
+// dashboard.js - full updated working file
 /* -------------------------
    Configuration / Helpers
    ------------------------- */
@@ -9,8 +8,7 @@ const OPENSHEET = {
   SHOPS_BALANCE: `${OPENSHEET_BASE}/SHOPS%20BALANCE`,
   DEPOSIT: `${OPENSHEET_BASE}/TOTAL%20DEPOSIT`,
   WITHDRAWAL: `${OPENSHEET_BASE}/TOTAL%20WITHDRAWAL`,
-  STLM: `${OPENSHEET_BASE}/STLM%2FTOPUP`,
-  COMM: `${OPENSHEET_BASE}/COMM`
+  STLM: `${OPENSHEET_BASE}/STLM%2FTOPUP`
 };
 
 const HEADERS = [
@@ -97,10 +95,18 @@ function buildSummary(data){
   data.forEach(r=>{
     const shop = (r["SHOP"]||r["SHOP NAME"]||"").trim();
     if(!shop) return;
-    if(!summary[shop]) summary[shop] = Object.assign({}, ...HEADERS.map(h=> ({ [h]: (h==="SHOP NAME"? shop : (h==="TEAM LEADER"? ((r["TEAM LEADER"]||"").trim().toUpperCase()) : (h==="GROUP NAME"? ((r["GROUP NAME"]||"").trim().toUpperCase()) : 0) ) ) })));
+    // init summary for this shop
+    if(!summary[shop]) {
+      summary[shop] = Object.assign({}, ...HEADERS.map(h=> ({
+        [h]: (h==="SHOP NAME"? shop : (h==="TEAM LEADER"? ((r["TEAM LEADER"]||"").trim().toUpperCase()) : (h==="GROUP NAME"? ((r["GROUP NAME"]||"").trim().toUpperCase()) : 0) ) )
+      })));
+    }
+    // accumulate numeric columns (including DP COMM, WD COMM, ADD COMM)
     ["SECURITY DEPOSIT","BRING FORWARD BALANCE","TOTAL DEPOSIT","TOTAL WITHDRAWAL","INTERNAL TRANSFER IN","INTERNAL TRANSAFER OUT","SETTLEMENT","SPECIAL PAYMENT","ADJUSTMENT","DP COMM","WD COMM","ADD COMM"].forEach(key=>{
       summary[shop][key] = (summary[shop][key] || 0) + parseNumber(r[key]);
     });
+
+    // running balance calculation (uses DP/WD/ADD in subtraction)
     summary[shop]["RUNNING BALANCE"] = 
       (summary[shop]["BRING FORWARD BALANCE"]||0) +
       (summary[shop]["TOTAL DEPOSIT"]||0) - (summary[shop]["TOTAL WITHDRAWAL"]||0) +
@@ -108,6 +114,7 @@ function buildSummary(data){
       (summary[shop]["SETTLEMENT"]||0) - (summary[shop]["SPECIAL PAYMENT"]||0) +
       (summary[shop]["ADJUSTMENT"]||0) - (summary[shop]["DP COMM"]||0) -
       (summary[shop]["WD COMM"]||0) - (summary[shop]["ADD COMM"]||0);
+
     summary[shop]["WALLET NUMBER"] = r["WALLET NUMBER"] || summary[shop]["WALLET NUMBER"];
   });
   cachedData = Object.values(summary);
@@ -191,6 +198,7 @@ function updateTeamDashboardLink(){
    ------------------------- */
 function buildTeamLeaderDropdown(data){
   const dd = document.getElementById("leaderFilter");
+  if(!dd) return;
   dd.innerHTML = '<option value="ALL">All Team Leaders</option>';
   const leaders = [...new Set(data.map(r=> (r["TEAM LEADER"]||"").trim().toUpperCase()))].filter(x=>x&&x!=="#N/A"&&x!=="N/A").sort();
   leaders.forEach(l=>{ const opt=document.createElement("option"); opt.value=l; opt.textContent=l; dd.appendChild(opt); });
@@ -198,22 +206,24 @@ function buildTeamLeaderDropdown(data){
 
 function buildGroupDropdown(data, selectedLeader="ALL"){
   const dd = document.getElementById("groupFilter");
+  if(!dd) return;
   dd.innerHTML = '<option value="ALL">All Groups</option>';
   const groups = [...new Set(data.filter(r=> selectedLeader==="ALL" || (r["TEAM LEADER"]||"").toUpperCase()===selectedLeader).map(r=> (r["GROUP NAME"]||"").trim().toUpperCase()))].filter(x=>x&&x!=="#N/A"&&x!=="N/A").sort();
   groups.forEach(g=>{ const opt=document.createElement("option"); opt.value=g; opt.textContent=g; dd.appendChild(opt); });
 }
 
 function filterData(){
-  const leader = document.getElementById("leaderFilter").value;
-  const group = document.getElementById("groupFilter").value;
-  const search = document.getElementById("searchInput").value.trim().toUpperCase();
+  const leader = document.getElementById("leaderFilter")?.value || "ALL";
+  const group = document.getElementById("groupFilter")?.value || "ALL";
+  const search = document.getElementById("searchInput")?.value.trim().toUpperCase() || "";
   filteredData = cachedData.filter(r=>{
     const matchLeader = leader==="ALL" || (r["TEAM LEADER"]||"").toUpperCase()===leader;
     const matchGroup = group==="ALL" || (r["GROUP NAME"]||"").toUpperCase()===group;
     const matchSearch = (r["SHOP NAME"]||"").toUpperCase().includes(search);
     return matchLeader && matchGroup && matchSearch;
   });
-  currentPage = 1; renderTable();
+  currentPage = 1;
+  renderTable();
 }
 
 /* -------------------------
@@ -221,7 +231,7 @@ function filterData(){
    ------------------------- */
 function exportCSV() {
   if (!filteredData.length) { alert("No data to export"); return; }
-  // build CSV rows
+  // header row
   const rows = [HEADERS.join(",")];
   filteredData.forEach(r=>{
     const row = HEADERS.map(h=> {
@@ -231,9 +241,7 @@ function exportCSV() {
     rows.push(row);
   });
   const blob = new Blob([rows.join("\n")], {type:"text/csv;charset=utf-8"});
-  // check saveAs available
   if (typeof saveAs !== "function") {
-    console.error("FileSaver (saveAs) not available.");
     alert("Download failed: FileSaver.js not loaded.");
     return;
   }
@@ -241,43 +249,36 @@ function exportCSV() {
 }
 
 /* -------------------------
-   ZIP Download (per-shop CSVs, filtered by leader)
+   ZIP Download (per-shop CSVs)
    ------------------------- */
 async function downloadAllShops() {
   console.log("downloadAllShops triggered");
-  // dependency checks
-  if (typeof JSZip !== "function" && typeof JSZip !== "object") {
-    alert("JSZip not loaded. Please include JSZip before dashboard.js");
-    console.error("JSZip missing");
-    return;
-  }
-  if (typeof saveAs !== "function") {
-    alert("FileSaver (saveAs) not loaded. Please include FileSaver.js before dashboard.js");
-    console.error("saveAs missing");
-    return;
-  }
+  if (typeof JSZip === "undefined") { alert("JSZip not loaded. Include JSZip before this script."); return; }
+  if (typeof saveAs === "undefined") { alert("FileSaver (saveAs) not loaded. Include FileSaver.js before this script."); return; }
 
   const overlay = createProgressOverlay();
   try {
     setProgressText("Fetching sheets...");
-    const [deposits, withdrawals, stlm, comm, shopBalanceRaw] = await Promise.all([
-      fetch(OPENSHEET.DEPOSIT).then(r=>r.ok? r.json(): []),
-      fetch(OPENSHEET.WITHDRAWAL).then(r=>r.ok? r.json(): []),
-      fetch(OPENSHEET.STLM).then(r=>r.ok? r.json(): []),
-      fetch(OPENSHEET.COMM).then(r=>r.ok? r.json(): []),
-      fetch(OPENSHEET.SHOPS_BALANCE).then(r=>r.ok? r.json(): [])
+    const [depositsRes, withdrawalsRes, stlmRes, shopBalanceRes] = await Promise.all([
+      fetch(OPENSHEET.DEPOSIT),
+      fetch(OPENSHEET.WITHDRAWAL),
+      fetch(OPENSHEET.STLM),
+      fetch(OPENSHEET.SHOPS_BALANCE)
     ]);
 
-    // normalize keys
+    // parse JSON but tolerate non-OK
+    const deposits = depositsRes.ok ? await depositsRes.json() : [];
+    const withdrawals = withdrawalsRes.ok ? await withdrawalsRes.json() : [];
+    const stlm = stlmRes.ok ? await stlmRes.json() : [];
+    const shopBalanceRaw = shopBalanceRes.ok ? await shopBalanceRes.json() : [];
+
     const normalizeKeys = obj => { const o={}; for(const k in obj) o[cleanKey(k)] = obj[k]; return o; };
     const shopBalance = (shopBalanceRaw||[]).map(normalizeKeys);
     const depositsNorm = (deposits||[]).map(normalizeKeys);
     const withdrawalsNorm = (withdrawals||[]).map(normalizeKeys);
     const stlmNorm = (stlm||[]).map(normalizeKeys);
-    const commNorm = (comm||[]).map(normalizeKeys);
 
     setProgressText("Building CSVs per shop...");
-    // selected leader
     const selectedLeader = document.getElementById("leaderFilter")?.value?.trim().toUpperCase() || "ALL";
     let shopsList = shopBalance;
     if (selectedLeader !== "ALL") shopsList = shopBalance.filter(r => ((r["TEAM LEADER"]||"").toUpperCase()) === selectedLeader);
@@ -285,6 +286,7 @@ async function downloadAllShops() {
 
     const zip = new JSZip();
     let idx = 0;
+
     for (const shopNormalized of shopNames) {
       idx++;
       setProgressText(`Building CSVs (${idx} / ${shopNames.length})`);
@@ -293,31 +295,22 @@ async function downloadAllShops() {
       const shopRow = shopBalance.find(r => (r["SHOP"]||"").toUpperCase() === shopNormalized) || {};
       const teamLeader = shopRow["TEAM LEADER"] || "";
       const securityDeposit = parseNumber(shopRow["SECURITY DEPOSIT"]);
-      const bringForwardBalance = parseNumber(shopRow["BRING FORWARD BALANCE"] || shopRow["BRING FORWARD BALANCE "] || 0);
+      const bringForwardBalance = parseNumber(shopRow["BRING FORWARD BALANCE"] || 0);
 
-      const shopCommRow = commNorm.find(r => 
-  ((r["SHOP"] || r["SHOP NAME"] || "").toUpperCase() === shopNormalized)
-) || {};
+      // get commission figures from SHOPS BALANCE (these are the figures/percentages stored in the tab)
+      const dpCommRate = parseNumber(shopRow["DP COMM"] || shopRow["DEPOSIT COMM"] || 0);
+      const wdCommRate = parseNumber(shopRow["WD COMM"] || shopRow["WITHDRAWAL COMM"] || 0);
+      const addCommRate = parseNumber(shopRow["ADD COMM"] || shopRow["ADDITIONAL COMM"] || 0);
 
-const dpCommRate = parseNumber(
-  shopCommRow["DP COMM"] || shopCommRow["DP COMMISSION"] || shopCommRow["DP COM"]
-);
-const wdCommRate = parseNumber(
-  shopCommRow["WD COMM"] || shopCommRow["WITHDRAW COMM"] || shopCommRow["WD COM"]
-);
-const addCommRate = parseNumber(
-  shopCommRow["ADD COMM"] || shopCommRow["ADDITIONAL COMM"] || shopCommRow["ADD COM"]
-);
-
-      // find dates
+      // collect all dates where activity exists for this shop
       const dateSet = new Set([
         ...(depositsNorm||[]).filter(r => (r["SHOP"]||"").toUpperCase() === shopNormalized).map(r => r["DATE"]),
         ...(withdrawalsNorm||[]).filter(r => (r["SHOP"]||"").toUpperCase() === shopNormalized).map(r => r["DATE"]),
         ...(stlmNorm||[]).filter(r => (r["SHOP"]||"").toUpperCase() === shopNormalized).map(r => r["DATE"])
       ]);
-      const sortedDates = Array.from(dateSet).filter(Boolean).sort((a,b)=> new Date(a)-new Date(b));
+      const sortedDates = Array.from(dateSet).filter(Boolean).sort((a,b)=> new Date(a) - new Date(b));
 
-      // build rows
+      // CSV rows (array of arrays)
       const csvRows = [
         [shopNormalized],
         [`Shop Name: ${shopNormalized}`],
@@ -328,15 +321,16 @@ const addCommRate = parseNumber(
         ["DATE","DEPOSIT","WITHDRAWAL","IN","OUT","SETTLEMENT","SPECIAL PAYMENT","ADJUSTMENT","SEC DEPOSIT","DP COMM","WD COMM","ADD COMM","BALANCE"]
       ];
 
+      // starting running balance is bring forward
       let runningBalance = bringForwardBalance;
       csvRows.push(["B/F Balance","0.00","0.00","0.00","0.00","0.00","0.00","0.00",securityDeposit.toFixed(2),"0.00","0.00","0.00",runningBalance.toFixed(2)]);
 
-      // helper to sum
       const sumRows = (arr, date, shop, key, mode=null) => {
-        return (arr||[]).filter(r => ((r["SHOP"]||"").toUpperCase() === shop) && r["DATE"] === date && (mode ? ((r["MODE"]||"").toUpperCase() === mode) : true))
+        return (arr||[]).filter(r => ((r["SHOP"]||"").toUpperCase() === shop) && (r["DATE"] === date) && (mode ? ((r["MODE"]||"").toUpperCase() === mode) : true))
                         .reduce((s, rr) => s + parseNumber(rr[key] || rr["AMOUNT"] || 0), 0);
       };
 
+      // per-date rows
       for (const date of sortedDates) {
         const depTotal = sumRows(depositsNorm, date, shopNormalized, "AMOUNT");
         const wdTotal = sumRows(withdrawalsNorm, date, shopNormalized, "AMOUNT");
@@ -347,10 +341,12 @@ const addCommRate = parseNumber(
         const adjustment = sumRows(stlmNorm, date, shopNormalized, "AMOUNT", "ADJUSTMENT");
         const secDepRow = sumRows(stlmNorm, date, shopNormalized, "AMOUNT", "SECURITY DEPOSIT");
 
-        const dpComm = depTotal * dpCommRate/100;
-        const wdComm = wdTotal * wdCommRate/100;
-        const addComm = depTotal * addCommRate/100;
+        // commissions are percentage-based (assumed rates as percentages in SHOPS BALANCE)
+        const dpComm = depTotal * dpCommRate / 100;
+        const wdComm = wdTotal * wdCommRate / 100;
+        const addComm = depTotal * addCommRate / 100;
 
+        // update running balance
         runningBalance += depTotal - wdTotal + inAmt - outAmt - settlement - specialPayment + adjustment - dpComm - wdComm - addComm;
 
         csvRows.push([
@@ -370,7 +366,7 @@ const addCommRate = parseNumber(
         ]);
       }
 
-      // Safe totals
+      // totals row - sum numeric columns (safe)
       const totals = {deposit:0,withdrawal:0,in:0,out:0,settlement:0,specialPayment:0,adjustment:0,secDep:0,dpComm:0,wdComm:0,addComm:0};
       for (const row of csvRows) {
         if (!row || row.length < 13) continue;
@@ -388,7 +384,8 @@ const addCommRate = parseNumber(
         totals.addComm += parseNumber(row[11]);
       }
 
-      csvRows.push(["TOTAL",
+      csvRows.push([
+        "TOTAL",
         totals.deposit.toFixed(2),
         totals.withdrawal.toFixed(2),
         totals.in.toFixed(2),
@@ -403,8 +400,11 @@ const addCommRate = parseNumber(
         runningBalance.toFixed(2)
       ]);
 
-      const csvText = csvRows.map(row => row.map(cell => `"${String(cell??"").replace(/"/g,'""')}"`).join(",")).join("\n");
-      const safeName = (shopNormalized||"UNKNOWN").replace(/[\\/:*?"<>|]/g,"_");
+      // convert rows to CSV-safe lines (quote cells)
+      const csvText = csvRows.map(row => row.map(cell => `"${String(cell ?? "").replace(/"/g,'""')}"`).join(",")).join("\n");
+
+      // safe filename
+      const safeName = (shopNormalized||"UNKNOWN").replace(/[\\\/:*?"<>|]/g,"_");
       zip.file(`${safeName}.csv`, csvText);
     }
 
@@ -413,19 +413,22 @@ const addCommRate = parseNumber(
 
     const blob = await zip.generateAsync({ type: "blob" });
     saveAs(blob, `Shop_Daily_Summaries_${new Date().toISOString().slice(0,10)}.zip`);
-    overlay.remove();
+    removeProgressOverlay();
     alert("ZIP download started.");
   } catch (err) {
     console.error("ZIP creation error:", err);
-    overlay.remove();
+    removeProgressOverlay();
     alert("ZIP generation failed: " + (err && err.message ? err.message : err));
   }
 }
 
+/* -------------------------
+   Progress overlay helpers
+   ------------------------- */
 function createProgressOverlay(){
-  let overlay = document.getElementById("zipProgressOverlay");
-  if (overlay) return overlay;
-  overlay = document.createElement("div");
+  // avoid duplicate
+  if (document.getElementById("zipProgressOverlay")) return document.getElementById("zipProgressOverlay");
+  const overlay = document.createElement("div");
   overlay.id = "zipProgressOverlay";
   overlay.style.cssText = `position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.45);z-index:99998;`;
   overlay.innerHTML = `<div style="background:#fff;padding:20px;border-radius:10px;min-width:260px;text-align:center;">
@@ -435,7 +438,8 @@ function createProgressOverlay(){
   document.body.appendChild(overlay);
   return overlay;
 }
-function setProgressText(txt){ const el=document.getElementById("zipProgressText"); if(el) el.textContent=txt; }
+function setProgressText(txt){ const el=document.getElementById("zipProgressText"); if(el) el.textContent = txt; }
+function removeProgressOverlay(){ const el=document.getElementById("zipProgressOverlay"); if(el) el.remove(); }
 
 /* -------------------------
    Init
@@ -449,25 +453,25 @@ document.addEventListener("DOMContentLoaded", async ()=>{
     buildSummary(rawData);
 
     // Auto-filter + absolute lock if ?teamLeader present
-const params = new URLSearchParams(window.location.search);
-const leaderParam = (params.get("teamLeader") || "").toUpperCase();
-if (leaderParam) {
-  const leaderSelect = document.getElementById("leaderFilter");
-  if (leaderSelect) {
-    leaderSelect.value = leaderParam;
-    leaderSelect.disabled = true; // 🔒 absolute filter
-    buildGroupDropdown(rawData, leaderParam);
-    filterData();
-  }
-  // persist URL param
-  const url = new URL(window.location.href);
-  if (url.searchParams.get("teamLeader") !== leaderParam) {
-    url.searchParams.set("teamLeader", leaderParam);
-    window.history.replaceState({}, "", url.href);
-  }
-}
+    const params = new URLSearchParams(window.location.search);
+    const leaderParam = (params.get("teamLeader") || "").toUpperCase();
+    if (leaderParam) {
+      const leaderSelect = document.getElementById("leaderFilter");
+      if (leaderSelect) {
+        leaderSelect.value = leaderParam;
+        leaderSelect.disabled = true; // lock filter when URL param present
+        buildGroupDropdown(rawData, leaderParam);
+        filterData();
+      }
+      // persist exact param value (no formatting)
+      const url = new URL(window.location.href);
+      if (url.searchParams.get("teamLeader") !== leaderParam) {
+        url.searchParams.set("teamLeader", leaderParam);
+        window.history.replaceState({}, "", url.href);
+      }
+    }
 
-    // wire up UI - make sure these IDs exist in your HTML
+    // wire up UI
     const leaderFilter = document.getElementById("leaderFilter");
     const groupFilter = document.getElementById("groupFilter");
     const searchInput = document.getElementById("searchInput");
